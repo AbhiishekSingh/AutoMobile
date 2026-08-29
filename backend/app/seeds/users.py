@@ -9,12 +9,24 @@ from app.modules.users.models import AppUser, Branch, Role
 from app.core.security import hash_password
 
 BRANCHES = [
-    {"name": "S.K KTM Thane", "dealer_code": "C12746", "city": "Thane"},
-    {"name": "S.K KTM Chembur", "dealer_code": "A12746", "city": "Mumbai"},
-    {"name": "S.K KTM Dombivali", "dealer_code": "D12746", "city": "Dombivali"},
-    {"name": "S.K KTM Ulhasnagar", "dealer_code": "U12746", "city": "Ulhasnagar"},
-    {"name": "S.K KTM Nerul", "dealer_code": "BRN01", "city": "Navi Mumbai"},
-    {"name": "S.K KTM Bhiwandi", "dealer_code": "B12746", "city": "Bhiwandi"},
+    {"name": "S.K KTM Thane", "dealer_code": "C12746", "city": "Thane",
+     "address": "ADDRESS TO BE UPDATED, Thane, Maharashtra",
+     "contact_no": "+91 00000 00000"},
+    {"name": "S.K KTM Chembur", "dealer_code": "A12746", "city": "Mumbai",
+     "address": "ADDRESS TO BE UPDATED, Chembur, Mumbai, Maharashtra",
+     "contact_no": "+91 00000 00000"},
+    {"name": "S.K KTM Dombivali", "dealer_code": "D12746", "city": "Dombivali",
+     "address": "ADDRESS TO BE UPDATED, Dombivali, Maharashtra",
+     "contact_no": "+91 00000 00000"},
+    {"name": "S.K KTM Ulhasnagar", "dealer_code": "U12746", "city": "Ulhasnagar",
+     "address": "ADDRESS TO BE UPDATED, Ulhasnagar, Maharashtra",
+     "contact_no": "+91 00000 00000"},
+    {"name": "S.K KTM Nerul", "dealer_code": "BRN01", "city": "Navi Mumbai",
+     "address": "Plot No. 17, Shop No: 5 & 6, Sion - Panvel Hwy, Sector 1, Nerul, Navi Mumbai, Maharashtra 400706",
+     "contact_no": "+91 89296 76584"},
+    {"name": "S.K KTM Bhiwandi", "dealer_code": "B12746", "city": "Bhiwandi",
+     "address": "ADDRESS TO BE UPDATED, Bhiwandi, Maharashtra",
+     "contact_no": "+91 00000 00000"},
 ]
 
 # login_id, full_name, password, role

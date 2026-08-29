@@ -57,6 +57,7 @@ class LeadSource(str, enum.Enum):
 
 class EnquiryStage(str, enum.Enum):
     OPEN = "OPEN"
+    QUOTED = "QUOTED"
     CLOSED = "CLOSED"
     BOOKED = "BOOKED"
     INVOICED = "INVOICED"
@@ -119,6 +120,7 @@ class Lead(Base):
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)
 
     customer = relationship("Customer", back_populates="leads")
+    branch = relationship("Branch")
     mode = relationship("EnquiryMode")
     model = relationship("BikeModel")
     opportunity = relationship("OpportunityStatus")

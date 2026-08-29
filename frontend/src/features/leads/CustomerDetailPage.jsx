@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { Empty, Loading, fmtDate, fmtTime, fmtDateTime } from '../../components/ui'
+import QuotationForm from '../quotations/QuotationForm'
 import api from '../../lib/api'
 
 // ---- badge colour helpers ----
@@ -96,6 +97,7 @@ export default function CustomerDetailPage() {
 
   const [fu, setFu] = useState(EMPTY_FU)
   const [tr, setTr] = useState(EMPTY_TR)
+  const [showQuotationForm, setShowQuotationForm] = useState(false)
 
   function load() {
     setErr('')
@@ -200,6 +202,7 @@ export default function CustomerDetailPage() {
                   display={lead.followup_enquiry_mode} value={form.mode_id} onChange={setFld('mode_id')} />
           <EField icon="🏢" label="Enquiry Branch Name" editing={false} display={lead.branch_name} />
           <EField icon="👤" label="Salesperson Name" editing={false} display={lead.salesperson_name} />
+          <EField icon="🕒" label="Enquiry Time" editing={false} display={fmtTime(lead.enquiry_date)} />        
         </div>
       </div>
 
@@ -302,7 +305,7 @@ export default function CustomerDetailPage() {
               <input className="input" type="datetime-local" value={fu.next_followup_at} onChange={setFuF('next_followup_at')} /></div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-            <button type="button" className="btn btn-primary" disabled title="Quotation module — coming soon">+ Create Quotation</button>
+            <button type="button" className="btn btn-primary" onClick={() => setShowQuotationForm(true)}>+ Create Quotation</button>
             <div style={{ display: 'flex', gap: 10 }}>
               <button type="button" className="btn btn-outline" onClick={() => setFu(EMPTY_FU)}>Cancel</button>
               <button className="btn btn-primary">Save Follow-up</button>
@@ -353,6 +356,18 @@ export default function CustomerDetailPage() {
           <button className="btn btn-primary">Save test ride</button>
         </form>
       </div>
+
+      {showQuotationForm && (
+        <QuotationForm
+          lead={lead}
+          lookups={lookups}
+          onClose={() => setShowQuotationForm(false)}
+          onCreated={(quotationId) => {
+            setShowQuotationForm(false)
+            nav(`/quotations/${quotationId}`)
+          }}
+        />
+      )}
     </Layout>
   )
 }

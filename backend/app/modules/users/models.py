@@ -23,6 +23,8 @@ class Branch(Base):
     name = Column(String, nullable=False)
     dealer_code = Column(String, unique=True)
     city = Column(String)
+    address = Column(String)
+    contact_no = Column(String)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=now_ist)
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)

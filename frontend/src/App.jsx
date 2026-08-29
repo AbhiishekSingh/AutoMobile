@@ -10,6 +10,8 @@ import LeadsPage from './features/leads/LeadsPage'
 import CustomerDetailPage from './features/leads/CustomerDetailPage'
 import CustomersPage from './features/leads/CustomersPage'
 import FollowupsPage from './features/leads/FollowupsPage'
+import QuotationsPage from './features/quotations/QuotationsPage'
+import QuotationDetailPage from './features/quotations/QuotationDetailPage'
 
 // Send "/" to the right place based on auth + role
 function Index() {
@@ -35,6 +37,8 @@ export default function App() {
           <Route path="/leads/:id" element={<Pba><CustomerDetailPage /></Pba>} />
           <Route path="/customers" element={<Pba><CustomersPage /></Pba>} />
           <Route path="/followups" element={<Pba><FollowupsPage /></Pba>} />
+          <Route path="/quotations" element={<Pba><QuotationsPage /></Pba>} />
+          <Route path="/quotations/:id" element={<Pba><QuotationDetailPage /></Pba>} />
 
           {/* other roles — placeholder homes for now */}
           <Route path="/owner" element={<ProtectedRoute roles={['OWNER']}><RoleHome title="Owner Dashboard" /></ProtectedRoute>} />
