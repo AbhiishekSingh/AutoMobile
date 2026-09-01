@@ -100,7 +100,9 @@ class QuotationListItem(BaseModel):
     quotation_id: int
     quotation_no: str
     lead_id: int
+    customer_id: int
     customer_name: str
+    contact_no: str
     on_road_price: Decimal
     status: QuotationStatus
     valid_until: Optional[datetime] = None

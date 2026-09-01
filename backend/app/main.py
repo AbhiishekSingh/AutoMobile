@@ -8,6 +8,7 @@ from app.modules.users.router import router as users_router
 from app.modules.leads.router import router as leads_router
 from app.modules.imports.router import router as imports_router
 from app.modules.quotations.router import router as quotations_router
+from app.modules.dashboard.router import router as dashboard_router
 
 app = FastAPI(title="S.K. Automobiles CRM — API")
 
@@ -24,6 +25,7 @@ app.include_router(users_router)
 app.include_router(leads_router)
 app.include_router(imports_router)
 app.include_router(quotations_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")

@@ -73,6 +73,11 @@ function SecHead({ title, section, editing, onEdit, onSave, onCancel }) {
   )
 }
 
+const quotationStatusClass = (s) => ({
+  DRAFT: 'badge-gray', SHARED: 'badge-sky', ACCEPTED: 'badge-green',
+  EXPIRED: 'badge-amber', REJECTED: 'badge-red',
+}[s] || 'badge-gray')
+
 const EMPTY_FU = { remark: '', contacted: true, disposition_id: '', opportunity_status_id: '', next_followup_at: '' }
 const EMPTY_TR = { model_id: '', color: '', status: 'BOOKED', scheduled_at: '', slot: '', preferred_location: 'Showroom' }
 
@@ -98,12 +103,20 @@ export default function CustomerDetailPage() {
   const [fu, setFu] = useState(EMPTY_FU)
   const [tr, setTr] = useState(EMPTY_TR)
   const [showQuotationForm, setShowQuotationForm] = useState(false)
+  const [quotations, setQuotations] = useState(null)
 
   function load() {
     setErr('')
     api.get(`/leads/${id}`).then((r) => setLead(r.data)).catch(() => setErr('Lead not found.'))
   }
-  useEffect(() => { load(); api.get('/lookups').then((r) => setLookups(r.data)).catch(() => {}) }, [id])
+  function loadQuotations() {
+    api.get(`/leads/${id}/quotations`).then((r) => setQuotations(r.data)).catch(() => setQuotations([]))
+  }
+  useEffect(() => {
+    load()
+    loadQuotations()
+    api.get('/lookups').then((r) => setLookups(r.data)).catch(() => {})
+  }, [id])
 
   function startEdit(section) {
     if (!lead) return
@@ -357,14 +370,45 @@ export default function CustomerDetailPage() {
         </form>
       </div>
 
+      {/* QUOTATION HISTORY */}
+      <div className="card">
+        <div className="card-header"><h3>Quotation History <span className="muted-note">({quotations?.length ?? 0})</span></h3></div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>Quotation No.</th><th>On Road Price</th><th>Status</th><th>Valid Until</th><th>Created</th><th></th></tr>
+            </thead>
+            <tbody>
+              {quotations?.map((q) => (
+                <tr key={q.quotation_id}>
+                  <td className="cell-primary">{q.quotation_no}</td>
+                  <td>₹ {Number(q.on_road_price).toLocaleString()}</td>
+                  <td><span className={'badge ' + quotationStatusClass(q.status)}>{q.status}</span></td>
+                  <td className="cell-muted">{fmtDateTime(q.valid_until)}</td>
+                  <td className="cell-muted">{fmtDateTime(q.created_at)}</td>
+                  <td>
+                    <button className="btn btn-outline btn-sm" onClick={() => nav(`/quotations/${q.quotation_id}`)}>
+                      👁️ Preview Quotation
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {quotations && quotations.length === 0 && <Empty>No quotations created yet.</Empty>}
+          {quotations === null && <Loading />}
+        </div>
+      </div>
+
       {showQuotationForm && (
         <QuotationForm
           lead={lead}
           lookups={lookups}
           onClose={() => setShowQuotationForm(false)}
-          onCreated={(quotationId) => {
+          onCreated={() => {
             setShowQuotationForm(false)
-            nav(`/quotations/${quotationId}`)
+            setMsg('Quotation created.')
+            loadQuotations()
           }}
         />
       )}

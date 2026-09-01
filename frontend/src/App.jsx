@@ -1,17 +1,22 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy } from 'react'
 import { AuthProvider, useAuth, ROLE_HOME } from './lib/auth'
 import ProtectedRoute from './components/ProtectedRoute'
+import { Loading } from './components/ui'
 import LoginPage from './features/auth/LoginPage'
 import RoleHome from './features/home/RoleHome'
 import UsersPage from './features/admin/UsersPage'
 import ImportPage from './features/admin/ImportPage'
-import DashboardPage from './features/dashboard/DashboardPage'
 import LeadsPage from './features/leads/LeadsPage'
 import CustomerDetailPage from './features/leads/CustomerDetailPage'
 import CustomersPage from './features/leads/CustomersPage'
 import FollowupsPage from './features/leads/FollowupsPage'
 import QuotationsPage from './features/quotations/QuotationsPage'
 import QuotationDetailPage from './features/quotations/QuotationDetailPage'
+
+// DashboardPage pulls in `recharts` (the largest dependency in the app), so
+// it's lazy-loaded into its own chunk — it's the only route that needs it.
+const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage'))
 
 // Send "/" to the right place based on auth + role
 function Index() {
@@ -32,7 +37,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
 
           {/* PBA module (Phase 2) */}
-          <Route path="/dashboard" element={<Pba><DashboardPage /></Pba>} />
+          <Route path="/dashboard" element={<Pba><Suspense fallback={<Loading />}><DashboardPage /></Suspense></Pba>} />
           <Route path="/leads" element={<Pba><LeadsPage /></Pba>} />
           <Route path="/leads/:id" element={<Pba><CustomerDetailPage /></Pba>} />
           <Route path="/customers" element={<Pba><CustomersPage /></Pba>} />

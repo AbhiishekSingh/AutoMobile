@@ -75,7 +75,9 @@ def list_lead_quotations(lead_id: int, user: AppUser = Depends(get_current_user)
            dependencies=[Depends(require_roles(*READ_ROLES))])
 def list_quotations(user: AppUser = Depends(get_current_user),
                     db: Session = Depends(get_db)):
-    return scope(db.query(Quotation), user).order_by(
+    """The Quotations page shows only quotations the logged-in user created."""
+    return scope(db.query(Quotation), user).filter(
+        Quotation.created_by_user_id == user.user_id).order_by(
         Quotation.created_at.desc()).all()
 
 

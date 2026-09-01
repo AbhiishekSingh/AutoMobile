@@ -9,6 +9,16 @@ const statusClass = (s) => ({
   EXPIRED: 'badge-amber', REJECTED: 'badge-red',
 }[s] || 'badge-gray')
 
+// Build a wa.me link with a prefilled message for a quotation.
+function whatsappLink(q) {
+  const digits = String(q.contact_no || '').replace(/\D/g, '')
+  const withCountry = digits.length === 10 ? `91${digits}` : digits
+  const quotationUrl = `${window.location.origin}/quotations/${q.quotation_id}`
+  const text = `Hi ${q.customer_name}, here is your quotation ${q.quotation_no} ` +
+    `(On Road Price: ₹${Number(q.on_road_price).toLocaleString()}). View it here: ${quotationUrl}`
+  return `https://wa.me/${withCountry}?text=${encodeURIComponent(text)}`
+}
+
 export default function QuotationsPage() {
   const nav = useNavigate()
   const [rows, setRows] = useState(null)
@@ -27,7 +37,7 @@ export default function QuotationsPage() {
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>Quotation No.</th><th>Customer</th><th>On Road Price</th><th>Status</th><th>Valid Until</th><th>Created</th></tr>
+              <tr><th>Quotation No.</th><th>Customer</th><th>On Road Price</th><th>Status</th><th>Valid Until</th><th>Created</th><th></th></tr>
             </thead>
             <tbody>
               {rows.map((q) => (
@@ -38,6 +48,14 @@ export default function QuotationsPage() {
                   <td><span className={'badge ' + statusClass(q.status)}>{q.status}</span></td>
                   <td className="cell-muted">{fmtDateTime(q.valid_until)}</td>
                   <td className="cell-muted">{fmtDateTime(q.created_at)}</td>
+                  <td onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8 }}>
+                    <a className="btn btn-outline btn-sm" href={whatsappLink(q)} target="_blank" rel="noopener noreferrer">
+                      💬 Send via WhatsApp
+                    </a>
+                    <button className="btn btn-outline btn-sm" onClick={() => nav(`/quotations/${q.quotation_id}`)}>
+                      👁️ Preview
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

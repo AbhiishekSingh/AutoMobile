@@ -35,17 +35,43 @@ export default function QuotationDetailPage() {
   if (err) return <Layout title="Quotation"><div className="card"><div className="card-pad">{err}</div></div></Layout>
   if (!quotation) return <Layout title="Quotation"><Loading /></Layout>
 
+  // Build a wa.me link with a prefilled message for this quotation.
+  const digits = String(quotation.contact_no || '').replace(/\D/g, '')
+  const withCountry = digits.length === 10 ? `91${digits}` : digits
+  const quotationUrl = `${window.location.origin}/quotations/${quotation.quotation_id}`
+  const waText = `Hi ${quotation.customer_name}, here is your quotation ${quotation.quotation_no} ` +
+    `(On Road Price: ₹${Number(quotation.on_road_price).toLocaleString()}). View it here: ${quotationUrl}`
+  const waLink = `https://wa.me/${withCountry}?text=${encodeURIComponent(waText)}`
+
   return (
     <Layout title={`Quotation ${quotation.quotation_no}`}
-            sub={`Status: ${quotation.status}`}
-            back={{ label: 'Back to Lead', onClick: () => nav(`/leads/${quotation.lead_id}`) }}>
+      sub={`Status: ${quotation.status}`}
+      back={{ label: 'Back to Lead', onClick: () => nav(`/leads/${quotation.lead_id}`) }}>
 
       <div className="card">
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
           <h3>Quotation Details</h3>
-          <button className="btn btn-primary" onClick={downloadPdf} disabled={downloading}>
-            {downloading ? 'Preparing PDF...' : '⬇ Download PDF'}
-          </button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <a
+              className="btn btn-success"
+              href={waLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                backgroundColor: '#25D366',
+                color: 'white',
+                transition: 'background-color 0.3s ease',
+                textDecoration: 'none'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#128C7E'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#25D366'}
+            >
+              💬 Send via WhatsApp
+            </a>
+            <button className="btn btn-primary" onClick={downloadPdf} disabled={downloading}>
+              {downloading ? 'Preparing PDF...' : '⬇ Download PDF'}
+            </button>
+          </div>
         </div>
         <div className="field-grid card-pad">
           <div className="fg"><div className="fg-label">Customer Name</div><div className="fg-value">{quotation.customer_name}</div></div>

@@ -14,4 +14,19 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // recharts (the biggest dependency, used only on the Dashboard page) is
+    // split into its own chunk, and it + the dashboard page itself are also
+    // lazy-loaded (see App.jsx) so most routes never even fetch this chunk.
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'charts-vendor': ['recharts'],
+          'http-vendor': ['axios'],
+        },
+      },
+    },
+  },
 })
