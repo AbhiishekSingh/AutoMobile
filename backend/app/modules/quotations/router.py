@@ -3,6 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from fastapi.responses import Response
 from app.modules.quotations.pdf import build_quotation_pdf
+from app.modules.quotations.whatsapp import (WhatsAppNotConfigured,
+                                             WhatsAppSendError,
+                                             send_quotation_pdf)
 from app.core.database import get_db, now_ist
 from app.core.deps import get_current_user, require_roles
 from app.modules.leads.models import Lead
@@ -156,6 +159,42 @@ def get_quotation_pdf(quotation_id: int, user: AppUser = Depends(get_current_use
     )
     return Response(content=pdf_bytes, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{quotation.quotation_no}.pdf"'})
+
+
+@router.post("/quotations/{quotation_id}/whatsapp-send",
+            dependencies=[Depends(require_roles(*READ_ROLES))])
+def send_quotation_whatsapp(quotation_id: int, user: AppUser = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """Sends the quotation PDF straight to the customer's WhatsApp as a
+    document attachment (via Meta's WhatsApp Cloud API — see
+    app/modules/quotations/whatsapp.py), with a short plain-text caption.
+    No quotation URL/link is ever included in the message.
+    """
+    quotation = _get_or_404(db, quotation_id, user)
+    branch = quotation.lead.branch if quotation.lead else None
+    pdf_bytes = build_quotation_pdf(
+        quotation,
+        branch_name=branch.name if branch else "S.K Automobiles",
+        branch_address=branch.address if branch and branch.address else "-",
+        branch_contact=branch.contact_no if branch else None,
+    )
+    caption = (f"Hi {quotation.customer_name}, here is your quotation "
+              f"{quotation.quotation_no} (On Road Price: \u20b9{quotation.on_road_price:,.0f}).")
+
+    try:
+        message_id = send_quotation_pdf(
+            contact_no=quotation.contact_no,
+            pdf_bytes=pdf_bytes,
+            filename=f"{quotation.quotation_no}.pdf",
+            caption=caption,
+        )
+    except WhatsAppNotConfigured as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except WhatsAppSendError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return {"success": True, "message_id": message_id, "sent_to": quotation.contact_no}
+
 
 @router.patch("/quotations/{quotation_id}/status", response_model=QuotationDetail,
              dependencies=[Depends(require_roles(*READ_ROLES))])

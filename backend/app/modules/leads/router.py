@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, now_ist
+from app.core.database import get_db, now_ist, period_range
 from app.core.deps import get_current_user, require_roles
 from app.modules.leads.models import (BikeModel, Customer, Disposition,
                                       EnquiryMode, Lead, LeadFollowup, LeadType,
@@ -16,7 +16,8 @@ from app.modules.leads.schemas import (CustomerListResponse, FollowupCreate,
                                        LeadDetail, LeadListResponse, LeadUpdate,
                                        Lookups, PBADashboard, TestRideCreate)
 from app.modules.leads.service import bucket_filter, mask_phone, scope
-from app.modules.users.models import AppUser, Branch
+from app.modules.quotations.models import Quotation, QuotationStatus
+from app.modules.users.models import AppUser, Branch, Role
 
 router = APIRouter(tags=["pba"])
 READ_ROLES = ("PBA", "OWNER", "GM", "ADMIN")
@@ -292,13 +293,42 @@ def list_followups(user: AppUser = Depends(get_current_user), db: Session = Depe
 
 @router.get("/pba/dashboard", response_model=PBADashboard,
             dependencies=[Depends(require_roles(*READ_ROLES))])
-def pba_dashboard(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    # "PERFORMANCE TRACKER" tiles (open bookings/booked/invoiced/delivered)
+    # respect the period dropdown ("today"/"week"/"month"/"year").
+    period_start, period_end = period_range(period)
+
     def stage(s):
-        return scope(db.query(func.count(Lead.lead_id)).filter(Lead.enquiry_stage == s), user).scalar() or 0
-    tr_completed = db.query(func.count(TestRide.id)).filter(TestRide.status == TestRideStatus.COMPLETED).scalar() or 0
-    tr_scheduled = db.query(func.count(TestRide.id)).filter(TestRide.status == TestRideStatus.BOOKED).scalar() or 0
-    return PBADashboard(open_bookings=stage("BOOKED"), booked=stage("BOOKED"),
-                        invoiced=stage("INVOICED"), delivered=0,
-                        calls_today=scope(db.query(func.count(Lead.lead_id)).filter(Lead.next_followup_at.isnot(None)), user).scalar() or 0,
-                        quotations_shared=0, test_rides_completed=tr_completed,
+        return scope(db.query(func.count(Lead.lead_id)).filter(
+            Lead.enquiry_stage == s,
+            Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end), user).scalar() or 0
+
+    # "TODAY'S" tiles (calls_today/quotations_shared) are always today's
+    # activity, independent of the period dropdown — matches the UI label.
+    today_start, today_end = period_range("today")
+
+    tr_completed = scope(db.query(func.count(TestRide.id))
+                         .join(Lead, TestRide.lead_id == Lead.lead_id)
+                         .filter(TestRide.status == TestRideStatus.COMPLETED), user).scalar() or 0
+    tr_scheduled = scope(db.query(func.count(TestRide.id))
+                         .join(Lead, TestRide.lead_id == Lead.lead_id)
+                         .filter(TestRide.status == TestRideStatus.BOOKED), user).scalar() or 0
+
+    calls_today = scope(db.query(func.count(Lead.lead_id)).filter(
+        Lead.next_followup_at.isnot(None),
+        Lead.next_followup_at >= today_start, Lead.next_followup_at < today_end), user).scalar() or 0
+
+    quotations_shared_q = db.query(func.count(Quotation.quotation_id)).filter(
+        Quotation.status == QuotationStatus.SHARED,
+        Quotation.updated_at >= today_start, Quotation.updated_at < today_end,
+        Quotation.created_by_user_id == user.user_id)
+    if user.role == Role.PBA and user.branch_id:
+        quotations_shared_q = quotations_shared_q.filter(Quotation.branch_id == user.branch_id)
+    quotations_shared = quotations_shared_q.scalar() or 0
+
+    return PBADashboard(open_bookings=stage(EnquiryStage.BOOKED), booked=stage(EnquiryStage.BOOKED),
+                        invoiced=stage(EnquiryStage.INVOICED), delivered=0,
+                        calls_today=calls_today,
+                        quotations_shared=quotations_shared, test_rides_completed=tr_completed,
                         test_rides_scheduled=tr_scheduled, total_target_ratio=78, td_completed_ratio=64)

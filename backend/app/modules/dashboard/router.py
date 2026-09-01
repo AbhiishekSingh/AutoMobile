@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.database import period_range
 from app.core.deps import get_current_user, get_db, require_roles
 from app.modules.leads.models import (BikeModel, EnquiryStage, Lead,
                                       LeadSource, LostReason, SLAFlag)
@@ -29,11 +30,17 @@ def charts(
       4. lead_source       — donut chart (CSV import vs WALKIN)
       5. lost_reasons      — horizontal bar (top reasons for CLOSED leads)
       6. quotation_funnel  — bar chart (DRAFT/SHARED/ACCEPTED/EXPIRED/REJECTED)
+
+    All six are filtered by `period` ("today" | "week" | "month" | "year"),
+    applied to Lead.enquiry_at for lead-based charts and Quotation.created_at
+    for the quotation funnel — see `period_range()` in app/core/database.py
+    for the exact calendar boundaries used.
     """
+    period_start, period_end = period_range(period)
 
     # ── 1. Target Tracker (model-wise) ──────────────────────────────────────
-    # "Achieved" = BOOKED or INVOICED or DELIVERED stage
-    # "Target"   = all leads for that model (any stage) — acts as target pool
+    # "Achieved" = BOOKED or INVOICED stage
+    # "Target"   = all leads for that model in the period — acts as target pool
     achieved_stages = [EnquiryStage.BOOKED, EnquiryStage.INVOICED]
 
     # NOTE: join Lead to BikeModel FIRST, then apply scope()/filters — see
@@ -43,6 +50,8 @@ def charts(
     base_q = (
         db.query(BikeModel.name, func.count(Lead.lead_id))
         .join(Lead, Lead.model_id == BikeModel.id, isouter=True)
+        .filter((Lead.lead_id.is_(None)) |
+                ((Lead.enquiry_at >= period_start) & (Lead.enquiry_at < period_end)))
     )
     base_q = scope(base_q, user).group_by(BikeModel.name)
 
@@ -54,13 +63,14 @@ def charts(
         db.query(BikeModel.name, func.count(Lead.lead_id))
         .join(Lead, Lead.model_id == BikeModel.id, isouter=True)
         .filter(Lead.enquiry_stage.in_(achieved_stages))
+        .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
     )
     achieved_rows = {
         name: cnt
         for name, cnt in scope(achieved_q, user).group_by(BikeModel.name).all()
     }
 
-    # Only include models that have at least one lead
+    # Only include models that have at least one lead in the period
     target_tracker = []
     for model_name, target in target_rows.items():
         if target == 0:
@@ -91,6 +101,7 @@ def charts(
 
     stage_counts = dict(
         scope(db.query(Lead.enquiry_stage, func.count(Lead.lead_id)), user)
+        .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
         .group_by(Lead.enquiry_stage)
         .all()
     )
@@ -103,6 +114,7 @@ def charts(
     # GREEN  = contacted <= 3h, YELLOW = pending 3-24h, RED = overdue > 24h
     sla_counts = dict(
         scope(db.query(Lead.sla_flag, func.count(Lead.lead_id)), user)
+        .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
         .group_by(Lead.sla_flag)
         .all()
     )
@@ -115,6 +127,7 @@ def charts(
     # ── 4. Lead Source Split (CSV import vs Walk-in) ─────────────────────────
     source_counts = dict(
         scope(db.query(Lead.source, func.count(Lead.lead_id)), user)
+        .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
         .group_by(Lead.source)
         .all()
     )
@@ -136,6 +149,7 @@ def charts(
         db.query(LostReason.name, func.count(Lead.lead_id))
         .join(Lead, Lead.lost_reason_id == LostReason.id)
         .filter(Lead.enquiry_stage == EnquiryStage.CLOSED)
+        .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
     )
     lost_rows = (
         scope(lost_q, user)
@@ -147,7 +161,10 @@ def charts(
     lost_reasons = [{"reason": name, "count": cnt} for name, cnt in lost_rows]
 
     # ── 6. Quotation Funnel (DRAFT → SHARED → ACCEPTED / EXPIRED / REJECTED) ─
-    quot_q = db.query(Quotation.status, func.count(Quotation.quotation_id))
+    quot_q = (
+        db.query(Quotation.status, func.count(Quotation.quotation_id))
+        .filter(Quotation.created_at >= period_start, Quotation.created_at < period_end)
+    )
     if user.role == Role.PBA and user.branch_id:
         quot_q = quot_q.filter(Quotation.branch_id == user.branch_id)
     quot_counts = dict(quot_q.group_by(Quotation.status).all())

@@ -9,3 +9,4 @@ python-jose[cryptography]==3.3.0
 pydantic-settings==2.3.4
 python-multipart==0.0.9
 reportlab
+requests

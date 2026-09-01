@@ -10,6 +10,7 @@ export default function QuotationDetailPage() {
   const [quotation, setQuotation] = useState(null)
   const [err, setErr] = useState('')
   const [downloading, setDownloading] = useState(false)
+  const [waStatus, setWaStatus] = useState(null)
 
   useEffect(() => {
     api.get(`/quotations/${id}`).then((r) => setQuotation(r.data)).catch(() => setErr('Quotation not found.'))
@@ -32,16 +33,23 @@ export default function QuotationDetailPage() {
     }
   }
 
+  // Sends the quotation PDF straight to the customer's WhatsApp as an
+  // attachment via the backend (Meta WhatsApp Cloud API) — no local
+  // download, no wa.me link, no quotation URL in the message.
+  async function sendViaWhatsapp() {
+    setWaStatus({ type: 'sending', text: 'Sending…' })
+    try {
+      await api.post(`/quotations/${id}/whatsapp-send`)
+      setWaStatus({ type: 'success', text: 'Sent via WhatsApp ✓' })
+    } catch (e) {
+      const detail = e?.response?.data?.detail || 'Could not send via WhatsApp.'
+      setWaStatus({ type: 'error', text: detail })
+    }
+  }
+
   if (err) return <Layout title="Quotation"><div className="card"><div className="card-pad">{err}</div></div></Layout>
   if (!quotation) return <Layout title="Quotation"><Loading /></Layout>
 
-  // Build a wa.me link with a prefilled message for this quotation.
-  const digits = String(quotation.contact_no || '').replace(/\D/g, '')
-  const withCountry = digits.length === 10 ? `91${digits}` : digits
-  const quotationUrl = `${window.location.origin}/quotations/${quotation.quotation_id}`
-  const waText = `Hi ${quotation.customer_name}, here is your quotation ${quotation.quotation_no} ` +
-    `(On Road Price: ₹${Number(quotation.on_road_price).toLocaleString()}). View it here: ${quotationUrl}`
-  const waLink = `https://wa.me/${withCountry}?text=${encodeURIComponent(waText)}`
 
   return (
     <Layout title={`Quotation ${quotation.quotation_no}`}
@@ -51,28 +59,33 @@ export default function QuotationDetailPage() {
       <div className="card">
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
           <h3>Quotation Details</h3>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <a
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
               className="btn btn-success"
-              href={waLink}
-              target="_blank"
-              rel="noopener noreferrer"
+              disabled={waStatus?.type === 'sending'}
+              onClick={sendViaWhatsapp}
               style={{
                 backgroundColor: '#25D366',
                 color: 'white',
                 transition: 'background-color 0.3s ease',
-                textDecoration: 'none'
+                border: 'none',
               }}
               onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#128C7E'}
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#25D366'}
             >
-              💬 Send via WhatsApp
-            </a>
+              {waStatus?.type === 'sending' ? 'Sending…' : '💬 Send via WhatsApp'}
+            </button>
             <button className="btn btn-primary" onClick={downloadPdf} disabled={downloading}>
               {downloading ? 'Preparing PDF...' : '⬇ Download PDF'}
             </button>
           </div>
         </div>
+        {waStatus && waStatus.type !== 'sending' && (
+          <div className="card-pad" style={{
+            paddingTop: 0, marginTop: -8,
+            color: waStatus.type === 'success' ? '#2E9E6B' : '#D85B4A', fontSize: 13,
+          }}>{waStatus.text}</div>
+        )}
         <div className="field-grid card-pad">
           <div className="fg"><div className="fg-label">Customer Name</div><div className="fg-value">{quotation.customer_name}</div></div>
           <div className="fg"><div className="fg-label">Contact No.</div><div className="fg-value">{quotation.contact_no}</div></div>

@@ -215,7 +215,7 @@ export default function DashboardPage() {
             ))}
 
             {/* ── Today's cards ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {ACTIVITY_TILES.map((t) => (
                 <div key={t.key} className="card" style={{ marginBottom: 0 }}>
                   <div className="card-pad" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -226,10 +226,10 @@ export default function DashboardPage() {
                       {t.icon}
                     </div>
                     <div>
-                      <div style={{ color: 'var(--muted)', fontWeight: 700, fontSize: 11, letterSpacing: '0.03em' }}>
+                      <div style={{ color: 'var(--muted)', fontWeight: 700, fontSize: 10, letterSpacing: '0.03em' }}>
                         {t.label}
                       </div>
-                      <div style={{ fontSize: 26, fontWeight: 800, color: t.accent, marginTop: 2 }}>
+                      <div style={{ fontSize: 25, fontWeight: 800, color: t.accent, marginTop: 2 }}>
                         {data[t.key] ?? 0}
                       </div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{t.sub}</div>
@@ -241,16 +241,16 @@ export default function DashboardPage() {
           </div>
 
           {/* ── Target Achievement rings ── */}
-          <div className="card" style={{ marginTop: 16 }}>
+          {/* <div className="card" style={{ marginTop: 16 }}>
             <div className="card-header"><h3>Target Achievement</h3></div>
             <div className="card-pad" style={{ display: 'flex', gap: 48, justifyContent: 'center', flexWrap: 'wrap' }}>
               <Ring pct={data.total_target_ratio}  label="Overall Target"          color="#2563EB" />
               <Ring pct={data.td_completed_ratio}  label="Test Drives Completed"   color="#059669" />
             </div>
-          </div>
+          </div> */}
 
           {/* ── Charts row ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 5 }}>
             {/* ✅ FIX: show a mini spinner inside the card while chartData is loading */}
             {trackerData === undefined ? (
               <div className="card">
