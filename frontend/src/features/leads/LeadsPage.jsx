@@ -10,31 +10,58 @@ const EMPTY_WALKIN = {
 }
 
 // Icon + accent colour for each source tile, keyed by the mode name (lowercased).
+// Source tile icon helper — same pattern as PipeIco
+function SrcIco({ src, ext = 'svg', w = 20, h = 20, alt = '' }) {
+  return (
+    <img
+      src={`/image/${src}.${ext}`}
+      width={w}
+      height={h}
+      alt={alt}
+      style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}
+    />
+  )
+}
+
 const SOURCE_META = {
-  total: { icon: '👥', accent: '#7C3AED' },
-  'walk-in': { icon: '🚶', accent: '#059669' },
-  hyperlocal: { icon: '📍', accent: '#D97706' },
-  digital: { icon: '🌐', accent: '#2563EB' },
-  aggregators: { icon: '🧩', accent: '#DC2626' },
-  'dealer digital': { icon: '🖥️', accent: '#2563EB' },
-  'cross sell': { icon: '🔁', accent: '#0EA5E9' },
-  activity: { icon: '📈', accent: '#7C3AED' },
-  mbo: { icon: '🏅', accent: '#D97706' },
-  'tele-in': { icon: '📞', accent: '#DB2777' },
+  total:           { icon: <SrcIco src="lead/01-total-leads"          ext="png" w={20} h={20} alt="total" />,          accent: '#7C3AED' },
+  'walk-in':       { icon: <SrcIco src="lead/10-walk-in"        ext="png" w={20} h={20} alt="walk-in" />,        accent: '#059669' },
+  hyperlocal:      { icon: <SrcIco src="lead/02-hyperlocal"     ext="png" w={20} h={20} alt="hyperlocal" />,     accent: '#D97706' },
+  digital:         { icon: <SrcIco src="lead/03-digital"        ext="png" w={20} h={20} alt="digital" />,        accent: '#2563EB' },
+  aggregators:     { icon: <SrcIco src="lead/04-aggregators"    ext="png" w={20} h={20} alt="aggregators" />,   accent: '#DC2626' },
+  'dealer digital':{ icon: <SrcIco src="lead/05-dealer-digital" ext="png" w={20} h={20} alt="dealer digital" />, accent: '#2563EB' },
+  'cross sell':    { icon: <SrcIco src="lead/06-cross-sell"     ext="png" w={20} h={20} alt="cross sell" />,     accent: '#0EA5E9' },
+  activity:        { icon: <SrcIco src="lead/07-activity"       ext="png" w={20} h={20} alt="activity" />,       accent: '#7C3AED' },
+  mbo:             { icon: <SrcIco src="lead/08-mbo"            ext="png" w={20} h={20} alt="mbo" />,            accent: '#D97706' },
+  'tele-in':       { icon: <SrcIco src="lead/09-tele-in"        ext="png" w={20} h={20} alt="tele-in" />,        accent: '#DB2777' },
 }
 const sourceMeta = (key) => SOURCE_META[(key || '').toLowerCase()] || { icon: '•', accent: '#64748B' }
 
+// Pipeline icon helper
+function PipeIco({ src, w = 20, h = 20, alt = '' }) {
+  return (
+    <img
+      src={`/image/${src}`}
+      width={w}
+      height={h}
+      alt={alt}
+      style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}
+    />
+  )
+}
+
 const PIPELINE_META = {
-  all: { icon: '🧾', sub: 'every lead' },
-  completed: { icon: '✅', sub: 'within 3 hrs' },
-  pending: { icon: '⏱️', sub: 'not done in 3 hrs' },
-  overdue: { icon: '⏰', sub: 'not done in 24 hrs' },
-  calllater: { icon: '📅', sub: 'next follow-up set' },
-  testride: { icon: '🏍️', sub: 'test ride done' },
-  casual: { icon: '❓', sub: 'based on remark' },
-  future: { icon: '📆', sub: 'future lead' },
-  service: { icon: '🔧', sub: 'service / spare' },
-  closed: { icon: '🔒', sub: 'closed' },
+  all:       { icon: <PipeIco src="pipeline/01-all-leads.png"            w={20} h={20} alt="all leads" />,         sub: 'every lead' },
+  completed: { icon: <PipeIco src="pipeline/02-completed.png"            w={20} h={20} alt="completed" />,         sub: 'within 3 hrs' },
+  pending:   { icon: <PipeIco src="pipeline/03-pending.png"              w={20} h={20} alt="pending" />,           sub: 'not done in 3 hrs' },
+  overdue:   { icon: <PipeIco src="pipeline/04-overdue.png"              w={22} h={22} alt="overdue" />,           sub: 'not done in 24 hrs' },
+  calllater: { icon: <PipeIco src="pipeline/05-call-later.png"           w={20} h={20} alt="call later" />,        sub: 'next follow-up set' },
+  testride:  { icon: <PipeIco src="pipeline/06-test-ride.png"            w={24} h={16} alt="test ride" />,         sub: 'test ride done' },
+  casual:    { icon: <PipeIco src="pipeline/07-casual-enquiry.png"       w={18} h={22} alt="casual enquiry" />,    sub: 'based on remark' },
+  future:    { icon: <PipeIco src="pipeline/08-future-lead.png"          w={20} h={20} alt="future lead" />,       sub: 'future lead' },
+  service:   { icon: <PipeIco src="pipeline/09-service-_-spare-part.png" w={22} h={22} alt="service / spare" />,   sub: 'service / spare' },
+  // icon: <PipeIco src="pipeline/10-closed.png" w={20} h={20} alt="closed" />
+  closed:    { icon: '🔒', sub: 'closed' },
 }
 const pipeMeta = (key) => PIPELINE_META[key] || { icon: '•', sub: '' }
 
@@ -195,7 +222,7 @@ export default function LeadsPage() {
                   borderRadius: 12, padding: '14px 14px', cursor: 'pointer', background: active ? '#EFF4FF' : '#F8FAFC',
                   border: active ? '2px solid #2563EB' : '1px solid #E9EEF5',
                 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>{meta.icon} {p.label}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 6 }}>{meta.icon} {p.label}</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: '#0F172A', marginTop: 4 }}>
                   {(p.count ?? 0).toLocaleString('en-IN')}
                 </div>
@@ -294,6 +321,7 @@ export default function LeadsPage() {
                   <td><Badge name={l.opportunity_status} /></td>
                   <td><Badge name={l.disposition} kind="disp" /></td>
                   <td><button className="btn btn-outline btn-sm" title="View details" onClick={() => nav(`/leads/${l.lead_id}`)}>👁</button></td>
+                  {/* <td><button className="btn btn-outline btn-sm" title="View details" onClick={() => nav(`/leads/${l.lead_id}`)}><img src="/image/eye.svg" width={16} height={12} alt="view" style={{ display: 'inline-block', verticalAlign: 'middle' }} /></button></td> */}
                 </tr>
               ))}
             </tbody>

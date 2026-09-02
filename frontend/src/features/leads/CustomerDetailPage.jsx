@@ -5,6 +5,11 @@ import { Empty, Loading, fmtDate, fmtTime, fmtDateTime } from '../../components/
 import QuotationForm from '../quotations/QuotationForm'
 import api from '../../lib/api'
 
+// ---- icon helper ----
+function Ico({ src, w = 16, h = 16, alt = '' }) {
+  return <img src={`/image/${src}`} width={w} height={h} alt={alt} style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }} />
+}
+
 // ---- badge colour helpers ----
 function oppClass(name) {
   const n = (name || '').toUpperCase()
@@ -67,7 +72,8 @@ function SecHead({ title, section, editing, onEdit, onSave, onCancel }) {
         </div>
       ) : (
         <button className="btn btn-outline btn-sm" onClick={() => onEdit(section)} title="Edit this section"
-                disabled={editing && editing !== section}>✏️ Edit</button>
+          // disabled={editing && editing !== section}><Ico src="edit.svg" w={13} h={13} alt="edit" /> Edit</button>
+          disabled={editing && editing !== section}>✏️ Edit</button>
       )}
     </div>
   )
@@ -197,25 +203,25 @@ export default function CustomerDetailPage() {
         <SecHead title="Enquiry Information" section="enquiry" editing={editing}
                  onEdit={startEdit} onSave={saveSection} onCancel={() => setEditing(null)} />
         <div className="field-grid">
-          <EField icon="📄" label="Enquiry Number" editing={false} display={lead.enquiry_no} />
-          <EField icon="📅" label="Enquiry Date & Time" editing={ed('enquiry')} type="datetime-local"
+          <EField icon={<Ico src="enquiry/01-enquiry-number.png" w={16} h={16} alt="document" />} label="Enquiry Number" editing={false} display={lead.enquiry_no} />
+          <EField icon={<Ico src="enquiry/02-enquiry-date-&-time.png" w={18} h={18} alt="calendar" />} label="Enquiry Date & Time" editing={ed('enquiry')} type="datetime-local"
                   display={`${fmtDate(lead.enquiry_date)} · ${fmtTime(lead.enquiry_date)}`}
                   value={form.enquiry_at} onChange={setFld('enquiry_at')} />
-          <EField icon="🕒" label="First Follow Up DateTime" editing={ed('enquiry')} type="datetime-local"
+          <EField icon={<Ico src="enquiry/03-first-follow-up-datetime.png" w={18} h={18} alt="clock" />} label="First Follow Up DateTime" editing={ed('enquiry')} type="datetime-local"
                   display={<>{fmtDateTime(lead.first_contact_at)}
                     {lead.within_3hrs === true && <span className="badge badge-green" style={{ marginLeft: 8 }}>3 HRS</span>}
                     {lead.within_3hrs === false && <span className="badge badge-red" style={{ marginLeft: 8 }}>&gt;3 HRS</span>}</>}
                   value={form.first_contact_at} onChange={setFld('first_contact_at')} />
-          <EField icon="✉️" label="Salesperson Email" editing={ed('enquiry')} valueClass="link"
+          <EField icon={<Ico src="enquiry/04-salesperson-email.png" w={18} h={18} alt="email" />} label="Salesperson Email" editing={ed('enquiry')} valueClass="link"
                   display={lead.salesperson_email} value={form.salesperson_email} onChange={setFld('salesperson_email')} />
-          <EField icon="📄" label="Enquiry Dealer Code" editing={ed('enquiry')}
+          <EField icon={<Ico src="enquiry/05-enquiry-dealer-code.png" w={18} h={18} alt="document" />} label="Enquiry Dealer Code" editing={ed('enquiry')}
                   display={lead.dealer_code} value={form.dealer_code} onChange={setFld('dealer_code')} />
-          <EField icon="📄" label="Enquiry Branch Code" editing={false} display={lead.dealer_code} />
-          <EField icon="🔁" label="Followup Enquiry Mode" editing={ed('enquiry')} options={lookups?.enquiry_modes}
+          <EField icon={<Ico src="enquiry/06-enquiry-branch-code.png" w={22} h={19} alt="document" />} label="Enquiry Branch Code" editing={false} display={lead.dealer_code} />
+          <EField icon={<Ico src="enquiry/07-followup-enquiry-mode.png" w={16} h={16} alt="refresh" />} label="Followup Enquiry Mode" editing={ed('enquiry')} options={lookups?.enquiry_modes}
                   display={lead.followup_enquiry_mode} value={form.mode_id} onChange={setFld('mode_id')} />
-          <EField icon="🏢" label="Enquiry Branch Name" editing={false} display={lead.branch_name} />
-          <EField icon="👤" label="Salesperson Name" editing={false} display={lead.salesperson_name} />
-          <EField icon="🕒" label="Enquiry Time" editing={false} display={fmtTime(lead.enquiry_date)} />        
+          <EField icon={<Ico src="enquiry/08-enquiry-branch-name.png" w={18} h={19} alt="building" />} label="Enquiry Branch Name" editing={false} display={lead.branch_name} />
+          <EField icon={<Ico src="enquiry/09-salesperson-name.png" w={16} h={16} alt="user" />} label="Salesperson Name" editing={false} display={lead.salesperson_name} />
+          <EField icon={<Ico src="enquiry/10-enquiry.png" w={18} h={18} alt="clock" />} label="Enquiry Time" editing={false} display={fmtTime(lead.enquiry_date)} />        
         </div>
       </div>
 
@@ -224,17 +230,17 @@ export default function CustomerDetailPage() {
         <SecHead title="Customer & Vehicle Information" section="vehicle" editing={editing}
                  onEdit={startEdit} onSave={saveSection} onCancel={() => setEditing(null)} />
         <div className="field-grid">
-          <EField icon="🧑" label="Customer Name" editing={ed('vehicle')}
+          <EField icon={<Ico src="customer/customer-name.png" w={18} h={18} alt="person" />} label="Customer Name" editing={ed('vehicle')}
                   display={lead.customer_name} value={form.full_name} onChange={setFld('full_name')} />
-          <EField icon="📱" label="Mobile" editing={ed('vehicle')}
+          <EField icon={<Ico src="customer/mobile.png" w={20} h={18} alt="phone" />} label="Mobile" editing={ed('vehicle')}
                   display={lead.mobile} value={form.phone} onChange={setFld('phone')} />
-          <EField icon="📍" label="PIN Code" editing={ed('vehicle')}
+          <EField icon={<Ico src="customer/03-pin-code.png" w={25} h={18} alt="pin" />} label="PIN Code" editing={ed('vehicle')}
                   display={lead.pincode} value={form.pincode} onChange={setFld('pincode')} />
-          <EField icon="🏍️" label="Model" editing={ed('vehicle')} options={lookups?.models}
+          <EField icon={<Ico src="customer/04-model.png" w={25} h={25} alt="motorcycle" />} label="Model" editing={ed('vehicle')} options={lookups?.models}
                   display={lead.model_name} value={form.model_id} onChange={setFld('model_id')} />
-          <EField icon="🎨" label="Color" editing={ed('vehicle')}
+          <EField icon={<Ico src="customer/05-color.png" w={20} h={20} alt="palette" />} label="Color" editing={ed('vehicle')}
                   display={lead.color} value={form.color} onChange={setFld('color')} />
-          <EField icon="🔖" label="SKU Code" editing={ed('vehicle')}
+          <EField icon={<Ico src="customer/06-sku-code.png" w={20} h={20} alt="tag" />} label="SKU Code" editing={ed('vehicle')}
                   display={lead.sku_code} value={form.sku_code} onChange={setFld('sku_code')} />
         </div>
       </div>
@@ -244,28 +250,28 @@ export default function CustomerDetailPage() {
         <SecHead title="Lead Status & Follow Up Information" section="status" editing={editing}
                  onEdit={startEdit} onSave={saveSection} onCancel={() => setEditing(null)} />
         <div className="field-grid">
-          <EField icon="🚩" label="Enquiry Stage" editing={ed('status')}
+          <EField icon={<Ico src="leadStatus/01-enquiry-stage.png" w={20} h={20} alt="flag" />} label="Enquiry Stage" editing={ed('status')}
                   options={STAGES.map((s) => ({ id: s, name: s }))}
                   display={<Badge name={lead.enquiry_stage} />} value={form.enquiry_stage} onChange={setFld('enquiry_stage')} />
-          <EField icon="✅" label="Opportunity Status" editing={ed('status')} options={lookups?.opportunity_statuses}
+          <EField icon={<Ico src="leadStatus/02-opportunity-status.png" w={20} h={20} alt="check" />} label="Opportunity Status" editing={ed('status')} options={lookups?.opportunity_statuses}
                   display={<Badge name={lead.opportunity_status} />} value={form.opportunity_status_id} onChange={setFld('opportunity_status_id')} />
-          <EField icon="📞" label="Follow Up Dispositions" editing={ed('status')} options={lookups?.dispositions}
+          <EField icon={<Ico src="leadStatus/03-follow-up-dispositions.png" w={20} h={20} alt="phone-call" />} label="Follow Up Dispositions" editing={ed('status')} options={lookups?.dispositions}
                   display={<Badge name={lead.disposition} kind="disp" />} value={form.disposition_id} onChange={setFld('disposition_id')} />
-          <EField icon="⚠️" label="Lost Reason" editing={ed('status')} options={lookups?.lost_reasons} valueClass="red"
+          <EField icon={<Ico src="leadStatus/04-lost-reason.png" w={20} h={20} alt="warning" />} label="Lost Reason" editing={ed('status')} options={lookups?.lost_reasons} valueClass="red"
                   display={lead.lost_reason} value={form.lost_reason_id} onChange={setFld('lost_reason_id')} />
-          <EField icon="📅" label="Last FollowUp Date Time" editing={false} display={fmtDateTime(lastFu?.created_at)} />
-          <EField icon="✔️" label="Follow-Up Done" editing={false} valueClass={lead.followups.length ? 'green' : ''}
+          <EField icon={<Ico src="leadStatus/05-last-followup-date.png" w={20} h={20} alt="calendar" />} label="Last FollowUp Date Time" editing={false} display={fmtDateTime(lastFu?.created_at)} />
+          <EField icon={<Ico src="leadStatus/06-follow-up-done.png" w={20} h={20} alt="checkmark" />} label="Follow-Up Done" editing={false} valueClass={lead.followups.length ? 'green' : ''}
                   display={lead.followups.length ? 'YES' : 'NO'} />
-          <EField icon="👥" label="Customer Contacted" editing={false} valueClass={contacted ? 'green' : ''}
+          <EField icon={<Ico src="leadStatus/07-customer-contacted.png" w={20} h={20} alt="users" />} label="Customer Contacted" editing={false} valueClass={contacted ? 'green' : ''}
                   display={contacted ? 'YES' : 'NO'} />
-          <EField icon="📅" label="Next Follow Up DateTime" editing={ed('status')} type="datetime-local"
+          <EField icon={<Ico src="leadStatus/08-next-follow-up-date-time.png" w={20} h={20} alt="calendar" />} label="Next Follow Up DateTime" editing={ed('status')} type="datetime-local"
                   display={fmtDateTime(lead.next_followup_at)} value={form.next_followup_at} onChange={setFld('next_followup_at')} />
-          <EField icon="🏍️" label="Test Ride Status" editing={false} display={latestTr?.status} />
-          <EField icon="✅" label="Test Ride Completed" editing={false} display={anyCompleted ? 'YES' : '—'} />
-          <EField icon="📅" label="Test Ride Booking Date" editing={false} display={fmtDateTime(latestTr?.scheduled_at)} />
-          <EField icon="🕒" label="Test Ride Slot" editing={false} display={latestTr?.slot} />
-          <EField icon="📍" label="Test Ride Location" editing={false} display={latestTr?.preferred_location} />
-          <EField icon="⏳" label="Ageing Days" editing={ed('status')} type="number"
+          <EField icon={<Ico src="leadStatus/09-test-ride-status.png" w={25} h={25} alt="motorcycle" />} label="Test Ride Status" editing={false} display={latestTr?.status} />
+          <EField icon={<Ico src="leadStatus/10-test-ride-completed.png" w={20} h={20} alt="check" />} label="Test Ride Completed" editing={false} display={anyCompleted ? 'YES' : '—'} />
+          <EField icon={<Ico src="leadStatus/11-test-ride-booking-date.png" w={20} h={20} alt="calendar" />} label="Test Ride Booking Date" editing={false} display={fmtDateTime(latestTr?.scheduled_at)} />
+          <EField icon={<Ico src="leadStatus/12-test-ride-slot.png" w={20} h={20} alt="slot" />} label="Test Ride Slot" editing={false} display={latestTr?.slot} />
+          <EField icon={<Ico src="leadStatus/13-test-ride-location.png" w={20} h={20} alt="location" />} label="Test Ride Location" editing={false} display={latestTr?.preferred_location} />
+          <EField icon={<Ico src="leadStatus/14-ageing-days.png" w={20} h={20} alt="hourglass" />} label="Ageing Days" editing={ed('status')} type="number"
                   display={lead.ageing_days || 0} value={form.ageing_days} onChange={setFld('ageing_days')} />
         </div>
       </div>
@@ -339,6 +345,7 @@ export default function CustomerDetailPage() {
                   <td className="cell-primary">{t.model_name || '—'}</td>
                   <td>{t.color || '—'}</td><td>{t.status}</td>
                   <td>{fmtDateTime(t.scheduled_at)}</td><td>{t.slot || '—'}</td>
+                  {/* <td>{t.preferred_location || '—'}</td><td>{t.completed ? <Ico src="check.svg" w={16} h={16} alt="completed" /> : '—'}</td> */}
                   <td>{t.preferred_location || '—'}</td><td>{t.completed ? '✅' : '—'}</td>
                 </tr>
               ))}
@@ -388,6 +395,7 @@ export default function CustomerDetailPage() {
                   <td className="cell-muted">{fmtDateTime(q.created_at)}</td>
                   <td>
                     <button className="btn btn-outline btn-sm" onClick={() => nav(`/quotations/${q.quotation_id}`)}>
+                      {/* <Ico src="eye.svg" w={16} h={12} alt="preview" /> Preview Quotation */}
                       👁️ Preview Quotation
                     </button>
                   </td>
