@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 
 const initials = (name) =>
@@ -27,14 +28,38 @@ const ADMIN_MENU = [
 ]
 
 const MENU_BY_ROLE = { PBA: PBA_MENU, ADMIN: ADMIN_MENU }
+const COLLAPSE_KEY = 'sk-crm-sidebar-collapsed'
 
 export default function Layout({ title, sub, back, children }) {
   const { user, logout } = useAuth()
+  const location = useLocation()
   const MENU = MENU_BY_ROLE[user?.role] || null
 
+  // Desktop icon-only collapse — persisted across sessions.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0') } catch { /* ignore */ }
+  }, [collapsed])
+
+  // Mobile drawer — closed by default, and auto-closes on navigation.
+  const [mobileOpen, setMobileOpen] = useState(false)
+  useEffect(() => { setMobileOpen(false) }, [location.pathname])
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
+      <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`}>
+        <button
+          type="button"
+          className="sidebar-collapse-btn"
+          onClick={() => setCollapsed((c) => !c)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? '›' : '‹'}
+        </button>
+
         <div className="brand-row">
           <span className="brand-logo">🏍️</span>
           <span className="brand-logo-text">CRM</span>
@@ -43,31 +68,56 @@ export default function Layout({ title, sub, back, children }) {
         <nav className="nav">
           {MENU ? MENU.map((m) =>
             m.live ? (
-              <NavLink key={m.label} to={m.to}
+              <NavLink key={m.label} to={m.to} title={m.label}
                 className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-                <span className="nav-ico">{m.icon}</span> {m.label}
+                <span className="nav-ico">{m.icon}</span>
+                <span className="nav-label">{m.label}</span>
               </NavLink>
             ) : (
-              <span key={m.label} className="nav-item disabled">
-                <span className="nav-ico">{m.icon}</span> {m.label}
+              <span key={m.label} className="nav-item disabled" title={m.label}>
+                <span className="nav-ico">{m.icon}</span>
+                <span className="nav-label">{m.label}</span>
                 <span className="nav-soon">SOON</span>
               </span>
             )
           ) : (
-            <span className="nav-item active"><span className="nav-ico">🏠</span> {user?.role} Home</span>
+            <span className="nav-item active">
+              <span className="nav-ico">🏠</span>
+              <span className="nav-label">{user?.role} Home</span>
+            </span>
           )}
         </nav>
 
         <div className="sidebar-footer">
-          <strong>{user?.full_name}</strong>{user?.role} · {user?.login_id}
+          <span className="sidebar-footer-text">
+            <strong>{user?.full_name}</strong>{user?.role} · {user?.login_id}
+          </span>
           <div style={{ marginTop: 10 }}>
-            <a onClick={logout} style={{ color: '#9FBBDE', fontWeight: 600, cursor: 'pointer' }}>← Sign out</a>
+            <a onClick={logout} title="Sign out"
+               style={{ color: '#9FBBDE', fontWeight: 600, cursor: 'pointer' }}>
+              ← <span className="sidebar-footer-text">Sign out</span>
+            </a>
           </div>
         </div>
       </aside>
 
+      {/* Mobile drawer overlay — click to close */}
+      <div
+        className={`sidebar-overlay${mobileOpen ? ' open' : ''}`}
+        onClick={() => setMobileOpen(false)}
+        aria-hidden="true"
+      />
+
       <div className="main">
         <div className="topbar">
+          <button
+            type="button"
+            className="mobile-toggle"
+            onClick={() => setMobileOpen((o) => !o)}
+            aria-label="Toggle menu"
+          >
+            ☰
+          </button>
           <div>
             {back && <div className="tb-back" onClick={back.onClick}>← {back.label}</div>}
             <h2 className="page-title">{title}</h2>
