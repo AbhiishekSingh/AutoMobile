@@ -113,9 +113,9 @@ export default function TotalSalesChart({ data = {} }) {
 
         {/* Stat chips — always visible */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-          <StatChip label="Achieved"       value={achieved}        color="#2E9E6B" bg="#DFF3E9" icon="🏍️" />
-          <StatChip label="To Be Achieved" value={to_be_achieved}  color="#2563EB" bg="#E4EFFB" icon="🛵" />
-          <StatChip label="Cancelled"      value={cancelled}       color="#D85B4A" bg="#FBE0DB" icon="❌" />
+          <StatChip label="Achieved"       value={achieved}        color="#2E9E6B" bg="#DFF3E9"  />
+          <StatChip label="To Be Achieved" value={to_be_achieved}  color="#2563EB" bg="#E4EFFB"  />
+          <StatChip label="Cancelled"      value={cancelled}       color="#D85B4A" bg="#FBE0DB"  />
         </div>
 
         {/* Skeleton or real donut */}
