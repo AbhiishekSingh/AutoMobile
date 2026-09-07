@@ -11,7 +11,8 @@ from app.core.deps import get_current_user, require_roles
 from app.modules.leads.models import Lead
 from app.modules.quotations.models import (Quotation, QuotationDocument,
                                            QuotationEmiOption,
-                                           QuotationInclusion)
+                                           QuotationInclusion,
+                                           QuotationStatus)
 from app.modules.quotations.schemas import (DocumentsBulkUpdate,
                                             EmiBulkUpdate,
                                             InclusionsBulkUpdate,
@@ -166,9 +167,9 @@ def get_quotation_pdf(quotation_id: int, user: AppUser = Depends(get_current_use
 def send_quotation_whatsapp(quotation_id: int, user: AppUser = Depends(get_current_user),
                             db: Session = Depends(get_db)):
     """Sends the quotation PDF straight to the customer's WhatsApp as a
-    document attachment (via Meta's WhatsApp Cloud API — see
-    app/modules/quotations/whatsapp.py), with a short plain-text caption.
-    No quotation URL/link is ever included in the message.
+    document attachment, via Meta's approved WhatsApp template (see
+    app/modules/quotations/whatsapp.py). On success, marks the quotation as
+    SHARED so it shows correctly in the Quotation Funnel dashboard chart.
     """
     quotation = _get_or_404(db, quotation_id, user)
     branch = quotation.lead.branch if quotation.lead else None
@@ -178,20 +179,22 @@ def send_quotation_whatsapp(quotation_id: int, user: AppUser = Depends(get_curre
         branch_address=branch.address if branch and branch.address else "-",
         branch_contact=branch.contact_no if branch else None,
     )
-    caption = (f"Hi {quotation.customer_name}, here is your quotation "
-              f"{quotation.quotation_no} (On Road Price: \u20b9{quotation.on_road_price:,.0f}).")
 
     try:
         message_id = send_quotation_pdf(
             contact_no=quotation.contact_no,
             pdf_bytes=pdf_bytes,
             filename=f"{quotation.quotation_no}.pdf",
-            caption=caption,
+            customer_name=quotation.customer_name,
+            model_name=quotation.model.name if quotation.model else "",
         )
     except WhatsAppNotConfigured as e:
         raise HTTPException(status_code=400, detail=str(e))
     except WhatsAppSendError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+    quotation.status = QuotationStatus.SHARED
+    db.commit()
 
     return {"success": True, "message_id": message_id, "sent_to": quotation.contact_no}
 
