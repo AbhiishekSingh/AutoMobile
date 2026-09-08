@@ -72,8 +72,8 @@ function SecHead({ title, section, editing, onEdit, onSave, onCancel }) {
         </div>
       ) : (
         <button className="btn btn-outline btn-sm" onClick={() => onEdit(section)} title="Edit this section"
-          // disabled={editing && editing !== section}><Ico src="edit.svg" w={13} h={13} alt="edit" /> Edit</button>
-          disabled={editing && editing !== section}>✏️ Edit</button>
+          disabled={editing && editing !== section}><Ico src="Edit.png" w={13} h={13} alt="edit" /> Edit</button>
+          // disabled={editing && editing !== section}>✏️ Edit</button>
       )}
     </div>
   )
@@ -395,8 +395,8 @@ export default function CustomerDetailPage() {
                   <td className="cell-muted">{fmtDateTime(q.created_at)}</td>
                   <td>
                     <button className="btn btn-outline btn-sm" onClick={() => nav(`/quotations/${q.quotation_id}`)}>
-                      {/* <Ico src="eye.svg" w={16} h={12} alt="preview" /> Preview Quotation */}
-                      👁️ Preview Quotation
+                      <Ico src="eye.png" w={16} h={12} alt="preview" /> Preview Quotation
+                      {/* 👁️ Preview Quotation */}
                     </button>
                   </td>
                 </tr>

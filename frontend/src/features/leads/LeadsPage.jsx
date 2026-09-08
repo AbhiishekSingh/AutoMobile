@@ -24,7 +24,7 @@ function SrcIco({ src, ext = 'svg', w = 20, h = 20, alt = '' }) {
 }
 
 const SOURCE_META = {
-  total:           { icon: <SrcIco src="lead/01-total-leads"          ext="png" w={20} h={20} alt="total" />,          accent: '#7C3AED' },
+  total:           { icon: <SrcIco src="lead/01-total-leads"    ext="png" w={20} h={20} alt="total" />,          accent: '#7C3AED' },
   'walk-in':       { icon: <SrcIco src="lead/10-walk-in"        ext="png" w={20} h={20} alt="walk-in" />,        accent: '#059669' },
   hyperlocal:      { icon: <SrcIco src="lead/02-hyperlocal"     ext="png" w={20} h={20} alt="hyperlocal" />,     accent: '#D97706' },
   digital:         { icon: <SrcIco src="lead/03-digital"        ext="png" w={20} h={20} alt="digital" />,        accent: '#2563EB' },
@@ -60,8 +60,8 @@ const PIPELINE_META = {
   casual:    { icon: <PipeIco src="pipeline/07-casual-enquiry.png"       w={18} h={22} alt="casual enquiry" />,    sub: 'based on remark' },
   future:    { icon: <PipeIco src="pipeline/08-future-lead.png"          w={20} h={20} alt="future lead" />,       sub: 'future lead' },
   service:   { icon: <PipeIco src="pipeline/09-service-_-spare-part.png" w={22} h={22} alt="service / spare" />,   sub: 'service / spare' },
-  // icon: <PipeIco src="pipeline/10-closed.png" w={20} h={20} alt="closed" />
-  closed:    { icon: '🔒', sub: 'closed' },
+  closed:    { icon: <PipeIco src="pipeline/10-closed.png" w={20} h={20} alt="closed" /> },
+  // closed:    { icon: '🔒', sub: 'closed' },
 }
 const pipeMeta = (key) => PIPELINE_META[key] || { icon: '•', sub: '' }
 
@@ -320,8 +320,8 @@ export default function LeadsPage() {
                   <td>{l.model_name || '—'}</td>
                   <td><Badge name={l.opportunity_status} /></td>
                   <td><Badge name={l.disposition} kind="disp" /></td>
-                  <td><button className="btn btn-outline btn-sm" title="View details" onClick={() => nav(`/leads/${l.lead_id}`)}>👁</button></td>
-                  {/* <td><button className="btn btn-outline btn-sm" title="View details" onClick={() => nav(`/leads/${l.lead_id}`)}><img src="/image/eye.svg" width={16} height={12} alt="view" style={{ display: 'inline-block', verticalAlign: 'middle' }} /></button></td> */}
+                  {/* <td><button className="btn btn-outline btn-sm" title="View details" onClick={() => nav(`/leads/${l.lead_id}`)}>👁</button></td> */}
+                  <td><button className="btn btn-outline btn-sm" title="View details" onClick={() => nav(`/leads/${l.lead_id}`)}><img src="/image/eye.png" width={16} height={12} alt="view" style={{ display: 'inline-block', verticalAlign: 'middle' }} /></button></td>
                 </tr>
               ))}
             </tbody>

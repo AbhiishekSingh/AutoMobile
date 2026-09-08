@@ -4,6 +4,10 @@ import Layout from '../../components/Layout'
 import { Empty, Loading, fmtDateTime } from '../../components/ui'
 import api from '../../lib/api'
 
+function Ico({ src, w = 16, h = 16, alt = '' }) {
+  return <img src={`/image/${src}`} width={w} height={h} alt={alt} style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }} />
+}
+
 const statusClass = (s) => ({
   DRAFT: 'badge-gray', SHARED: 'badge-sky', ACCEPTED: 'badge-green',
   EXPIRED: 'badge-amber', REJECTED: 'badge-red',
@@ -63,12 +67,13 @@ export default function QuotationsPage() {
                     <td className="cell-muted">{fmtDateTime(q.created_at)}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <button className="btn btn-outline btn-sm" disabled={status?.type === 'sending'}
+                        {/* <button className="btn btn-outline btn-sm" disabled={status?.type === 'sending'}
                                 onClick={() => sendViaWhatsapp(q.quotation_id, setStatusFor)}>
                           {status?.type === 'sending' ? 'Sending…' : '💬 Send via WhatsApp'}
-                        </button>
+                        </button> */}
                         <button className="btn btn-outline btn-sm" onClick={() => nav(`/quotations/${q.quotation_id}`)}>
-                          👁️ Preview
+                          <Ico src="eye.png" w={16} h={12} alt="preview" /> Preview
+                          {/* 👁️ Preview */}
                         </button>
                       </div>
                       {status && status.type !== 'sending' && (
