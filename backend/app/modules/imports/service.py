@@ -1,4 +1,4 @@
-"""LeadSquared 'Enquiry Statement Report' CSV importer.
+"""LeadSquared 'Enquiry Statement Report' importer — CSV and Excel (.xlsx/.xls).
 
 Reads the exact 35-column export, dedupes customers by phone, skips leads whose
 Enquiry Number already exists, and auto-creates lookup values (mode, model,
@@ -7,11 +7,17 @@ opportunity status, disposition, lost reason) that aren't in the DB yet.
 Salesperson assignment: tries "Salesperson Email Address" first, falls back to
 "Salesperson Name" (case-insensitive) against a PBA's full name, and only ever
 matches an active PBA account. See `_find_salesperson` for the full rationale.
+
+CSV and Excel files both funnel into the same `_process_rows` — only the
+"turn the uploaded bytes into a list of {column: value} dicts" step differs
+(`_rows_from_csv` / `_rows_from_excel`), so every rule above applies identically
+regardless of which file type was uploaded.
 """
 import csv
 import io
 from datetime import datetime, timedelta
 
+from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
 from app.core.database import now_ist
@@ -139,12 +145,74 @@ def _find_salesperson(db, email: str, name: str, cache: dict):
     return sp
 
 
-def import_leads_csv(content: bytes, db: Session, default_branch_id: int | None = None,
-                     actor_user_id: int | None = None) -> dict:
+def _rows_from_csv(content: bytes):
+    """Yield (line_no, row_dict) from CSV bytes. line_no matches the row's
+    actual line in the file (header is line 1) so error messages point
+    somewhere the person can actually find in their file."""
     text = content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
+    for line_no, row in enumerate(reader, start=2):
+        yield line_no, row
 
-    cache = {}
+
+def _rows_from_excel(content: bytes):
+    """Yield (line_no, row_dict) from an .xlsx/.xls workbook's first sheet.
+
+    Header is read from row 1; every cell is coerced to a string so downstream
+    parsing (`_clean`, `_parse_dt`, `_digits`, etc.) behaves identically to the
+    CSV path — Excel would otherwise hand back native `int`/`float`/`datetime`
+    objects for numeric-looking or date-looking cells (e.g. a phone number or
+    an enquiry number that Excel auto-formatted as a number), which would
+    silently break `.strip()`/digit-extraction downstream if left as-is.
+    """
+    wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    ws = wb.worksheets[0]
+    rows_iter = ws.iter_rows(values_only=True)
+    try:
+        header = [(_clean(str(h)) if h is not None else "") for h in next(rows_iter)]
+    except StopIteration:
+        return
+    for line_no, values in enumerate(rows_iter, start=2):
+        row = {}
+        for col, val in zip(header, values):
+            if not col:
+                continue
+            if val is None:
+                row[col] = ""
+            elif isinstance(val, datetime):
+                row[col] = val.strftime("%d-%m-%Y %H:%M")
+            elif isinstance(val, float) and val.is_integer():
+                row[col] = str(int(val))   # avoid "9822010001.0" for numeric-looking cells
+            else:
+                row[col] = str(val)
+        yield line_no, row
+
+
+def import_leads_file(content: bytes, filename: str, db: Session,
+                      default_branch_id: int | None = None,
+                      actor_user_id: int | None = None) -> dict:
+    """Entry point for both CSV and Excel uploads — picks the right row
+    parser by extension, then runs the exact same processing either way."""
+    name = (filename or "").lower()
+    if name.endswith((".xlsx", ".xls")):
+        rows = _rows_from_excel(content)
+    else:
+        rows = _rows_from_csv(content)
+    return _process_rows(rows, db, default_branch_id=default_branch_id,
+                         actor_user_id=actor_user_id)
+
+
+def import_leads_csv(content: bytes, db: Session, default_branch_id: int | None = None,
+                     actor_user_id: int | None = None) -> dict:
+    """Back-compat wrapper — CSV only. Prefer `import_leads_file`, which also
+    handles Excel uploads."""
+    return _process_rows(_rows_from_csv(content), db, default_branch_id=default_branch_id,
+                         actor_user_id=actor_user_id)
+
+
+def _process_rows(rows, db: Session, default_branch_id: int | None = None,
+                  actor_user_id: int | None = None) -> dict:
+    cache = {}   # memoizes _get_or_create / _find_salesperson lookups within this one import
     # Collapsed into ONE notification per assignee at the end of the import,
     # instead of one per lead — a 500-row CSV assigning 300 leads to the same
     # PBA should produce a single "300 new leads assigned to you", not 300
@@ -155,7 +223,7 @@ def import_leads_csv(content: bytes, db: Session, default_branch_id: int | None 
                "skipped_duplicates": 0, "skipped_invalid": 0,
                "salesperson_matched": 0, "salesperson_unmatched": 0, "errors": []}
 
-    for line_no, row in enumerate(reader, start=2):   # row 1 is the header
+    for line_no, row in rows:
         try:
             enquiry_no = _clean(row.get("Enquiry Number"))
             name = _clean(row.get("Customer"))

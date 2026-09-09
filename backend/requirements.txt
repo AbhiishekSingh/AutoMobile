@@ -10,3 +10,4 @@ pydantic-settings==2.3.4
 python-multipart==0.0.9
 reportlab
 requests
+openpyxl==3.1.2

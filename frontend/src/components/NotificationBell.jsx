@@ -115,8 +115,15 @@ export default function NotificationBell() {
         // (<=30s) — acceptable, and far better than blocking navigation.
       }
     }
+    // "lead" notifications (single reassignment) deep-link straight to that
+    // lead. "lead_import" notifications (bulk CSV/Excel import) don't have a
+    // single lead to point at — they cover N leads at once — so they go to
+    // the Leads list instead, which sorts newest-enquiry-first by default,
+    // putting the just-imported leads right at the top.
     if (n.reference_type === 'lead' && n.reference_id) {
       navigate(`/leads/${n.reference_id}`)
+    } else if (n.reference_type === 'lead_import') {
+      navigate('/leads')
     }
   }
 

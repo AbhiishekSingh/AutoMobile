@@ -33,7 +33,7 @@ export default function ImportPage() {
 
   async function upload(e) {
     e.preventDefault()
-    if (!file) { setError('Please choose a .csv file first.'); return }
+    if (!file) { setError('Please choose a .csv, .xlsx, or .xls file first.'); return }
     setBusy(true); setError(''); setResult(null)
     try {
       const fd = new FormData()
@@ -58,11 +58,11 @@ export default function ImportPage() {
         <div className="card-header"><h3>Upload CSV</h3></div>
         <form className="card-pad" onSubmit={upload}>
           <div className="field">
-            <label>LeadSquared CSV file</label>
-            <input ref={fileRef} className="input" type="file" accept=".csv" onChange={pick} />
+            <label>LeadSquared CSV or Excel file</label>
+            <input ref={fileRef} className="input" type="file" accept=".csv,.xlsx,.xls" onChange={pick} />
           </div>
 
-          <div className="field" style={{ maxWidth: 360 }}>
+          {/* <div className="field" style={{ maxWidth: 360 }}>
             <label>Assign all leads to branch <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span></label>
             <select className="input" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
               <option value="">Use branch from the CSV file</option>
@@ -71,10 +71,10 @@ export default function ImportPage() {
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
               Pick a branch so the leads are visible to that branch's PBA. Leave as-is to keep each row's own branch.
             </div>
-          </div>
+          </div> */}
 
           <button className="btn btn-primary" disabled={busy}>
-            {busy ? 'Importing…' : '⬆️ Upload & Import'}
+            {busy ? 'Importing…' : 'Upload'}
           </button>
           {file && !busy && <span style={{ marginLeft: 12, color: 'var(--muted)', fontSize: 12.5 }}>Selected: {file.name}</span>}
           {error && <div className="hint" style={{ marginTop: 14, background: 'var(--red-light)', color: '#7a2318' }}>{error}</div>}
