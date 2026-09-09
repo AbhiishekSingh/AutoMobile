@@ -126,6 +126,10 @@ class LeadUpdate(BaseModel):
     lost_reason_id: Optional[int] = None
     next_followup_at: Optional[datetime] = None
     ageing_days: Optional[int] = None
+    # Reassignment — kept separate from the other "simple" fields in the router
+    # because a change here needs to trigger a notification; explicitly Optional
+    # so "key not sent" (no-op) is distinguishable from "sent as null" (unassign).
+    assigned_user_id: Optional[int] = None
 
 
 # ---------- create payloads ----------

@@ -97,6 +97,8 @@ export default function ImportPage() {
               <Stat label="New customers" value={result.customers_new} accent="#2563EB" />
               <Stat label="Matched customers" value={result.customers_matched} accent="#2563EB" />
               <Stat label="Test rides created" value={result.test_rides_created} />
+              <Stat label="Salesperson matched" value={result.salesperson_matched} accent="#059669" />
+              <Stat label="Salesperson unmatched" value={result.salesperson_unmatched} accent="#D97706" />
               <Stat label="Skipped (duplicates)" value={result.skipped_duplicates} accent="#D97706" />
               <Stat label="Skipped (invalid)" value={result.skipped_invalid} accent="#DC2626" />
             </div>

@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_roles
+from app.core.deps import get_current_user, require_roles
 from app.modules.imports.service import import_leads_csv
-from app.modules.users.models import Branch
+from app.modules.users.models import AppUser, Branch
 
 router = APIRouter(prefix="/admin", tags=["admin-imports"])
 
@@ -20,6 +20,7 @@ def branches(db: Session = Depends(get_db)):
 async def import_leads(
     file: UploadFile = File(...),
     branch_id: int | None = Form(None),   # optional: force one branch for the whole file
+    user: AppUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     name = (file.filename or "").lower()
@@ -28,5 +29,6 @@ async def import_leads(
     content = await file.read()
     if not content:
         raise HTTPException(400, "The file is empty")
-    summary = import_leads_csv(content, db, default_branch_id=branch_id)
+    summary = import_leads_csv(content, db, default_branch_id=branch_id,
+                               actor_user_id=user.user_id)
     return {"filename": file.filename, **summary}

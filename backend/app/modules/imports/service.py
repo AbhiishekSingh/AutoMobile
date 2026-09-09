@@ -3,6 +3,10 @@
 Reads the exact 35-column export, dedupes customers by phone, skips leads whose
 Enquiry Number already exists, and auto-creates lookup values (mode, model,
 opportunity status, disposition, lost reason) that aren't in the DB yet.
+
+Salesperson assignment: tries "Salesperson Email Address" first, falls back to
+"Salesperson Name" (case-insensitive) against a PBA's full name, and only ever
+matches an active PBA account. See `_find_salesperson` for the full rationale.
 """
 import csv
 import io
@@ -16,7 +20,8 @@ from app.modules.leads.models import (BikeModel, Customer, Disposition,
                                       LeadSource, LeadType, LostReason,
                                       OpportunityStatus, SLAFlag, TestRide,
                                       TestRideStatus)
-from app.modules.users.models import AppUser, Branch
+from app.modules.notifications.service import create_bulk_assignment_notifications
+from app.modules.users.models import AppUser, Branch, Role
 
 
 # ---------- small parsing helpers ----------
@@ -93,14 +98,62 @@ def _get_or_create(db, Model, name, cache):
     return obj
 
 
-def import_leads_csv(content: bytes, db: Session, default_branch_id: int | None = None) -> dict:
+def _find_salesperson(db, email: str, name: str, cache: dict):
+    """Resolve a CSV row's salesperson to an actual PBA account.
+
+    Real-world exports (e.g. from LeadSquared/Bajaj) often carry a
+    "Salesperson Email Address" that isn't the PBA's login email at all
+    (a phone-number-style @bajajauto.co.in address, for example) — matching
+    on email alone silently leaves the lead unassigned in that case. So:
+
+      1. Try an exact-ish, case-insensitive match on email.
+      2. If that fails, fall back to a case-insensitive match on the
+         "Salesperson Name" column against the PBA's full name.
+      3. Either way, only ever match an ACTIVE PBA — never an Owner/GM/Admin/
+         CRE/RTO account, and never a deactivated user, even if their email
+         or name happens to coincide.
+
+    Returns the matched AppUser, or None (caller decides how to report that).
+    `cache` memoizes lookups within one import so a file with 500 rows for
+    the same salesperson only queries the DB once.
+    """
+    email = _clean(email)
+    name = _clean(name)
+    key = ("salesperson", email.lower(), name.lower())
+    if key in cache:
+        return cache[key]
+
+    sp = None
+    if email:
+        sp = (db.query(AppUser)
+                .filter(AppUser.email.ilike(email),
+                        AppUser.role == Role.PBA, AppUser.is_active.is_(True))
+                .first())
+    if not sp and name:
+        sp = (db.query(AppUser)
+                .filter(AppUser.full_name.ilike(name),
+                        AppUser.role == Role.PBA, AppUser.is_active.is_(True))
+                .first())
+
+    cache[key] = sp
+    return sp
+
+
+def import_leads_csv(content: bytes, db: Session, default_branch_id: int | None = None,
+                     actor_user_id: int | None = None) -> dict:
     text = content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
 
     cache = {}
+    # Collapsed into ONE notification per assignee at the end of the import,
+    # instead of one per lead — a 500-row CSV assigning 300 leads to the same
+    # PBA should produce a single "300 new leads assigned to you", not 300
+    # separate rows flooding their bell.
+    assigned_counts: dict[int, int] = {}
     summary = {"rows_read": 0, "leads_created": 0, "customers_new": 0,
                "customers_matched": 0, "test_rides_created": 0,
-               "skipped_duplicates": 0, "skipped_invalid": 0, "errors": []}
+               "skipped_duplicates": 0, "skipped_invalid": 0,
+               "salesperson_matched": 0, "salesperson_unmatched": 0, "errors": []}
 
     for line_no, row in enumerate(reader, start=2):   # row 1 is the header
         try:
@@ -150,9 +203,21 @@ def import_leads_csv(content: bytes, db: Session, default_branch_id: int | None 
                         db.flush()
                 branch_id = branch.branch_id if branch else None
 
-            # ---- salesperson by email (optional link) ----
+            # ---- salesperson: email first, then fall back to name — see
+            # _find_salesperson for why (real exports rarely carry the PBA's
+            # actual login email). Only ever resolves to an active PBA. ----
+            sp_name = _clean(row.get("Salesperson Name"))
             sp_email = _clean(row.get("Salesperson Email Address"))
-            sp = db.query(AppUser).filter(AppUser.email == sp_email).first() if sp_email else None
+            sp = _find_salesperson(db, sp_email, sp_name, cache)
+            if sp_email or sp_name:
+                if sp:
+                    summary["salesperson_matched"] += 1
+                else:
+                    summary["salesperson_unmatched"] += 1
+                    if len(summary["errors"]) < 50:
+                        summary["errors"].append(
+                            f"Row {line_no}: no active PBA matched salesperson "
+                            f"'{sp_name or sp_email}' — lead left unassigned")
 
             # ---- lookups (auto-create) ----
             mode = _get_or_create(db, EnquiryMode, row.get("Enquiry Mode"), cache)
@@ -189,6 +254,9 @@ def import_leads_csv(content: bytes, db: Session, default_branch_id: int | None 
             db.add(lead)
             db.flush()
             summary["leads_created"] += 1
+            if lead.assigned_user_id:
+                assigned_counts[lead.assigned_user_id] = (
+                    assigned_counts.get(lead.assigned_user_id, 0) + 1)
 
             # ---- optional test ride ----
             tr_status = _clean(row.get("Test Ride Status"))
@@ -209,6 +277,14 @@ def import_leads_csv(content: bytes, db: Session, default_branch_id: int | None 
             summary["skipped_invalid"] += 1
             if len(summary["errors"]) < 50:
                 summary["errors"].append(f"Row {line_no}: {e}")
+
+    # One grouped notification per assignee, added to the same transaction as
+    # the leads themselves — if the commit below fails, neither the leads nor
+    # the notifications persist, so there's never a "notified but lead missing"
+    # (or vice versa) state.
+    if assigned_counts:
+        create_bulk_assignment_notifications(db, counts_by_user_id=assigned_counts,
+                                             actor_user_id=actor_user_id)
 
     db.commit()
     return summary

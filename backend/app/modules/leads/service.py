@@ -15,9 +15,25 @@ def mask_phone(phone: str) -> str:
 
 
 def scope(query, user: AppUser):
-    """PBA sees only their branch; Owner/GM/Admin see all."""
+    """Visibility rule for a PBA's Leads/Pipeline/Follow-ups/Customers screens.
+
+    A PBA sees:
+      - leads specifically assigned to THEM (assigned_user_id == their id),
+        regardless of branch — so a lead they own is never hidden from them, and
+      - unassigned leads in their own branch, so there's still a pool of
+        unclaimed leads to pick up.
+
+    A PBA does NOT see another PBA's assigned leads just because it's the same
+    branch — previously this filtered on branch alone, so every PBA in a branch
+    saw every lead in that branch no matter who (if anyone) it was assigned to.
+    That meant "assignment" and "visibility" were two unrelated things; this
+    keeps them in sync. Owner/GM/Admin are unaffected — they still see everything.
+    """
     if user.role == Role.PBA and user.branch_id:
-        query = query.filter(Lead.branch_id == user.branch_id)
+        query = query.filter(
+            (Lead.assigned_user_id == user.user_id) |
+            ((Lead.assigned_user_id.is_(None)) & (Lead.branch_id == user.branch_id))
+        )
     return query
 
 

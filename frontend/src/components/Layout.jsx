@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import NotificationBell from './NotificationBell'
 
 const initials = (name) =>
   (name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
@@ -17,6 +18,52 @@ function NavIco({ src, w = 18, h = 18, alt = '' }) {
     />
   )
 }
+
+// Inline SVG icons for the Admin menu — drawn directly instead of pointing at
+// image files, because /public/image only ever shipped the PBA navbar PNGs
+// (navbar/01-*.png … 11-*.png). nav-users.svg / nav-import-leads.svg /
+// nav-settings.svg were referenced by the Admin menu below but never actually
+// added to the project, so the browser rendered its broken-image placeholder
+// for every Admin nav item. These render the same on every machine, so that
+// class of "icon just isn't there" bug can't happen again for this menu.
+function AdminIco({ children, w = 18, h = 18 }) {
+  return (
+    <svg width={w} height={h} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+         style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}>
+      {children}
+    </svg>
+  )
+}
+const UsersIcon = (p) => (
+  <AdminIco {...p}>
+    <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
+    <circle cx="10" cy="7" r="4" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </AdminIco>
+)
+const ImportIcon = (p) => (
+  <AdminIco {...p}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6" />
+    <path d="M12 18v-6" />
+    <path d="M9.5 14.5 12 12l2.5 2.5" />
+  </AdminIco>
+)
+const SettingsIcon = (p) => (
+  <AdminIco {...p}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 10 4.09V4a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </AdminIco>
+)
+const HomeIcon = (p) => (
+  <AdminIco {...p}>
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5 9.5V21h14V9.5" />
+    <path d="M9 21v-6h6v6" />
+  </AdminIco>
+)
 
 // PBA menu — matches the prototype. `live: true` items are wired routes;
 // the rest are shown for the complete look but marked "SOON".
@@ -35,9 +82,9 @@ const PBA_MENU = [
 
 // Admin menu
 const ADMIN_MENU = [
-  { to: '/admin',        icon: <NavIco src="nav-users.svg"        w={20} h={18} alt="users"        />, label: 'Users',        live: true },
-  { to: '/admin/import', icon: <NavIco src="nav-import-leads.svg" w={18} h={20} alt="import leads" />, label: 'Import Leads', live: true },
-  {                      icon: <NavIco src="nav-settings.svg"     w={18} h={18} alt="settings"     />, label: 'Settings'                 },
+  { to: '/admin',        icon: <UsersIcon w={20} h={18} />,  label: 'Users',        live: true },
+  { to: '/admin/import', icon: <ImportIcon w={18} h={20} />, label: 'Import Leads', live: true },
+  {                      icon: <SettingsIcon w={18} h={18} />, label: 'Settings'                 },
 ]
 
 const MENU_BY_ROLE = { PBA: PBA_MENU, ADMIN: ADMIN_MENU }
@@ -99,7 +146,7 @@ export default function Layout({ title, sub, back, children }) {
           ) : (
             <span className="nav-item active">
               <span className="nav-ico">
-                <NavIco src="nav-home.svg" w={18} h={18} alt="home" />
+                <HomeIcon w={18} h={18} />
               </span>
               <span className="nav-label">{user?.role} Home</span>
             </span>
@@ -142,6 +189,7 @@ export default function Layout({ title, sub, back, children }) {
             {sub && <div className="page-sub">{sub}</div>}
           </div>
           <div className="topbar-right">
+            <NotificationBell />
             <div className="user-cluster">
               <span className="avatar-lg">{initials(user?.full_name)}</span>
               <div>

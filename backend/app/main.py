@@ -9,6 +9,7 @@ from app.modules.leads.router import router as leads_router
 from app.modules.imports.router import router as imports_router
 from app.modules.quotations.router import router as quotations_router
 from app.modules.dashboard.router import router as dashboard_router
+from app.modules.notifications.router import router as notifications_router
 
 app = FastAPI(title="S.K. Automobiles CRM — API")
 
@@ -26,6 +27,7 @@ app.include_router(leads_router)
 app.include_router(imports_router)
 app.include_router(quotations_router)
 app.include_router(dashboard_router)
+app.include_router(notifications_router)
 
 
 @app.get("/health")

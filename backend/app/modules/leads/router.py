@@ -16,6 +16,8 @@ from app.modules.leads.schemas import (CustomerListResponse, FollowupCreate,
                                        LeadDetail, LeadListResponse, LeadUpdate,
                                        Lookups, PBADashboard, TestRideCreate)
 from app.modules.leads.service import bucket_filter, mask_phone, scope
+from app.modules.notifications.models import NotificationType
+from app.modules.notifications.service import create_notification
 from app.modules.quotations.models import Quotation, QuotationStatus
 from app.modules.users.models import AppUser, Branch, Role
 
@@ -133,6 +135,9 @@ def create_lead(body: LeadCreate, user: AppUser = Depends(get_current_user),
                 model_id=body.model_id, color=body.color, lead_type=LeadType(body.lead_type),
                 source=LeadSource(body.source), enquiry_at=now_ist(),
                 sla_flag=SLAFlag.YELLOW, salesperson_email=user.email)
+    # No notification here: assigned_user_id is always the creating PBA
+    # themselves (self-assigned), and we intentionally never notify a user
+    # about their own action.
     db.add(lead); db.commit(); db.refresh(lead)
     return {"lead_id": lead.lead_id, "enquiry_no": lead.enquiry_no}
 
@@ -145,7 +150,8 @@ LEAD_FIELDS = ("enquiry_at", "first_contact_at", "dealer_code", "salesperson_ema
 
 
 @router.patch("/leads/{lead_id}", dependencies=[Depends(require_roles(*EDIT_ROLES))])
-def update_lead(lead_id: int, body: LeadUpdate, db: Session = Depends(get_db)):
+def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_current_user),
+                db: Session = Depends(get_db)):
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(404, "Lead not found")
@@ -167,6 +173,31 @@ def update_lead(lead_id: int, body: LeadUpdate, db: Session = Depends(get_db)):
         lead.current_disposition_id = data["disposition_id"]
     if "enquiry_stage" in data and data["enquiry_stage"]:
         lead.enquiry_stage = EnquiryStage(data["enquiry_stage"])
+
+    # ---- reassignment (kept separate: it's the one field that must trigger a
+    # notification, so we need the before/after values, not just a blind setattr) ----
+    if "assigned_user_id" in data:
+        if user.role == Role.PBA:
+            # A PBA can update their own leads' details, but re-assigning a lead
+            # to someone else (or themselves) is a management action.
+            raise HTTPException(403, "Only Owner/GM/Admin can reassign a lead")
+        new_assignee_id = data["assigned_user_id"]
+        if new_assignee_id is not None:
+            target = db.get(AppUser, new_assignee_id)
+            if not target or not target.is_active or target.role != Role.PBA:
+                raise HTTPException(400, "Assigned user must be an active PBA")
+        previous_assignee_id = lead.assigned_user_id
+        lead.assigned_user_id = new_assignee_id
+        if new_assignee_id is not None and new_assignee_id != previous_assignee_id:
+            create_notification(
+                db, user_id=new_assignee_id, type_=NotificationType.LEAD_ASSIGNED,
+                title="New lead assigned to you",
+                message=f"Lead {lead.enquiry_no} ({cust.full_name if cust else 'Unknown'}) "
+                        f"has been assigned to you.",
+                reference_type="lead", reference_id=lead.lead_id, actor_user_id=user.user_id,
+            )
+        # new_assignee_id == previous_assignee_id (re-saving the same person) and
+        # new_assignee_id is None (unassigning) both intentionally skip notifying.
 
     db.commit()
     return {"ok": True}
