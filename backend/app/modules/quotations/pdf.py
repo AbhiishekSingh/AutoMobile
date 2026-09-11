@@ -137,7 +137,12 @@ def build_quotation_pdf(quotation: Quotation, branch_name: str, branch_address: 
     reg_labels = {"REGULAR": "REGULAR NO.", "CHOICE": "CHOICE NO.", "BH_PASSING": "BH PASSING NO."}
     reg_lines = []
     for key, label in reg_labels.items():
-        mark = "☑" if quotation.hspr_registration_type.value == key else "☐"
+        # Plain ASCII brackets, not the Unicode "☑"/"☐" checkbox glyphs — the
+        # base Helvetica font used throughout this PDF doesn't include those
+        # Unicode glyphs, so both checked and unchecked previously rendered
+        # as the same generic "missing character" box, making every option
+        # look identical/checked regardless of which one was actually saved.
+        mark = "[X]" if quotation.hspr_registration_type.value == key else "[ ]"
         reg_lines.append(Paragraph(f"{mark} {label}", normal))
     reg_table = Table([[Paragraph("<b>HSPR REGISTRATION TYPE :</b>", normal), reg_lines]],
                       colWidths=[60 * mm, 120 * mm])

@@ -7,12 +7,21 @@ const EMPTY = { login_id: '', full_name: '', email: '', password: '', role: 'PBA
 
 export default function Users() {
   const [users, setUsers] = useState([])
+  const [branches, setBranches] = useState([])
   const [form, setForm] = useState(EMPTY)
   const [editingId, setEditingId] = useState(null)
   const [msg, setMsg] = useState('')
 
   const load = () => api.get('/users').then((r) => setUsers(r.data))
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    // Same endpoint the Import Leads page already uses — reused here so the
+    // admin picks a branch by name instead of having to know its numeric id.
+    api.get('/admin/branches').then((r) => setBranches(r.data)).catch(() => setBranches([]))
+  }, [])
+
+  // id -> name, so the Users table can show "S.K KTM Thane" instead of a bare "1".
+  const branchName = (id) => branches.find((b) => b.branch_id === id)?.name || (id ? `#${id}` : '—')
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
@@ -71,8 +80,13 @@ export default function Users() {
               <select className="input" value={form.role} onChange={set('role')}>
                 {ROLES.map((r) => <option key={r}>{r}</option>)}
               </select></div>
-            <div className="field"><label>Branch ID</label>
-              <input className="input" value={form.branch_id || ''} onChange={set('branch_id')} placeholder="e.g. 1" /></div>
+            <div className="field"><label>Branch</label>
+              <select className="input" value={form.branch_id || ''} onChange={set('branch_id')}>
+                <option value="">— No branch —</option>
+                {branches.map((b) => (
+                  <option key={b.branch_id} value={b.branch_id}>{b.name}</option>
+                ))}
+              </select></div>
             <div style={{ display: 'flex', gap: 10 }}>
               {editingId && <button type="button" className="btn btn-outline" style={{ flex: 1 }}
                 onClick={() => { setEditingId(null); setForm(EMPTY) }}>Cancel</button>}
@@ -93,7 +107,7 @@ export default function Users() {
                     <td className="cell-muted">{u.login_id}</td>
                     <td className="cell-primary">{u.full_name}</td>
                     <td>{u.role}</td>
-                    <td>{u.branch_id || '—'}</td>
+                    <td>{branchName(u.branch_id)}</td>
                     <td>{u.is_active
                       ? <span className="badge badge-green">Active</span>
                       : <span className="badge badge-gray">Inactive</span>}</td>
