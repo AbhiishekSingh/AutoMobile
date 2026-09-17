@@ -10,7 +10,8 @@ export default function QuotationDetailPage() {
   const [quotation, setQuotation] = useState(null)
   const [err, setErr] = useState('')
   const [downloading, setDownloading] = useState(false)
-  const [waStatus, setWaStatus] = useState(null)
+  // const [waStatus, setWaStatus] = useState(null)   // WhatsApp temporarily disabled
+  const [emailStatus, setEmailStatus] = useState(null)
 
   useEffect(() => {
     api.get(`/quotations/${id}`).then((r) => setQuotation(r.data)).catch(() => setErr('Quotation not found.'))
@@ -33,17 +34,30 @@ export default function QuotationDetailPage() {
     }
   }
 
-  // Sends the quotation PDF straight to the customer's WhatsApp as an
-  // attachment via the backend (Meta WhatsApp Cloud API) — no local
-  // download, no wa.me link, no quotation URL in the message.
-  async function sendViaWhatsapp() {
-    setWaStatus({ type: 'sending', text: 'Sending…' })
+  // "Send via WhatsApp" temporarily disabled — see the commented-out button
+  // below and app/modules/quotations/router.py. Re-enable once the Meta
+  // production message template is approved.
+  // async function sendViaWhatsapp() {
+  //   setWaStatus({ type: 'sending', text: 'Sending…' })
+  //   try {
+  //     await api.post(`/quotations/${id}/whatsapp-send`)
+  //     setWaStatus({ type: 'success', text: 'Sent via WhatsApp ✓' })
+  //   } catch (e) {
+  //     const detail = e?.response?.data?.detail || 'Could not send via WhatsApp.'
+  //     setWaStatus({ type: 'error', text: detail })
+  //   }
+  // }
+
+  // Stopgap for "Send via WhatsApp" while the Meta template is pending
+  // approval — emails the same PDF as an attachment instead.
+  async function sendViaEmail() {
+    setEmailStatus({ type: 'sending', text: 'Sending…' })
     try {
-      await api.post(`/quotations/${id}/whatsapp-send`)
-      setWaStatus({ type: 'success', text: 'Sent via WhatsApp ✓' })
+      const res = await api.post(`/quotations/${id}/email-send`)
+      setEmailStatus({ type: 'success', text: `Sent via Email to ${res.data.sent_to} ✓` })
     } catch (e) {
-      const detail = e?.response?.data?.detail || 'Could not send via WhatsApp.'
-      setWaStatus({ type: 'error', text: detail })
+      const detail = e?.response?.data?.detail || 'Could not send via Email.'
+      setEmailStatus({ type: 'error', text: detail })
     }
   }
 
@@ -60,6 +74,9 @@ export default function QuotationDetailPage() {
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
           <h3>Quotation Details</h3>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {/* "Send via WhatsApp" temporarily disabled — Meta production
+               template pending approval. Re-enable by uncommenting this
+               button and the sendViaWhatsapp() function above.
             <button
               className="btn btn-success"
               disabled={waStatus?.type === 'sending'}
@@ -75,16 +92,32 @@ export default function QuotationDetailPage() {
             >
               {waStatus?.type === 'sending' ? 'Sending…' : '💬 Send via WhatsApp'}
             </button>
+            */}
+            <button
+              className="btn btn-success"
+              disabled={emailStatus?.type === 'sending'}
+              onClick={sendViaEmail}
+              style={{
+                backgroundColor: '#2563EB',
+                color: 'white',
+                transition: 'background-color 0.3s ease',
+                border: 'none',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1D4ED8'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563EB'}
+            >
+              {emailStatus?.type === 'sending' ? 'Sending…' : '✉️ Send via Email'}
+            </button>
             <button className="btn btn-primary" onClick={downloadPdf} disabled={downloading}>
               {downloading ? 'Preparing PDF...' : '⬇ Download PDF'}
             </button>
           </div>
         </div>
-        {waStatus && waStatus.type !== 'sending' && (
+        {emailStatus && emailStatus.type !== 'sending' && (
           <div className="card-pad" style={{
             paddingTop: 0, marginTop: -8,
-            color: waStatus.type === 'success' ? '#2E9E6B' : '#D85B4A', fontSize: 13,
-          }}>{waStatus.text}</div>
+            color: emailStatus.type === 'success' ? '#2E9E6B' : '#D85B4A', fontSize: 13,
+          }}>{emailStatus.text}</div>
         )}
         <div className="field-grid card-pad">
           <div className="fg"><div className="fg-label">Customer Name</div><div className="fg-value">{quotation.customer_name}</div></div>

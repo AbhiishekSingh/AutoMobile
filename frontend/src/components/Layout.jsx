@@ -64,26 +64,40 @@ const HomeIcon = (p) => (
     <path d="M9 21v-6h6v6" />
   </AdminIco>
 )
+const ActivityIcon = (p) => (
+  <AdminIco {...p}>
+    <path d="M8 3v3M16 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+    <path d="M8 13l2.5 2.5L16 10" />
+  </AdminIco>
+)
+const LogoutIcon = (p) => (
+  <AdminIco {...p}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </AdminIco>
+)
 
 // PBA menu — matches the prototype. `live: true` items are wired routes;
 // the rest are shown for the complete look but marked "SOON".
 const PBA_MENU = [
-  { to: '/dashboard', icon: <NavIco src="navbar/02-dashboard.png"  w={25} h={25} alt="dashboard"  />, label: 'Dashboard',  live: true },
-  { to: '/leads',     icon: <NavIco src="navbar/03-leads.png"      w={25} h={25} alt="leads"       />, label: 'Leads',      live: true },
-  { to: '/customers', icon: <NavIco src="navbar/04-customers.png"  w={25} h={25} alt="customers"   />, label: 'Customers',  live: true },
-  { to: '/followups', icon: <NavIco src="navbar/05-follow-ups.png"  w={25} h={25} alt="follow ups"  />, label: 'Follow Ups', live: true },
-  { to: '/quotations',icon: <NavIco src="navbar/07-quotes.png" w={25} h={25} alt="quotations"  />, label: 'Quotations', live: true },
-  {                   icon: <NavIco src="navbar/06-bookings.png"   w={25} h={25} alt="bookings"    />, label: 'Bookings'  },
-  {                   icon: <NavIco src="navbar/08-invoices.png"   w={25} h={25} alt="invoices"    />, label: 'Invoices'  },
-  {                   icon: <NavIco src="navbar/09-deliveries.png" w={25} h={25} alt="deliveries"  />, label: 'Deliveries'},
-  {                   icon: <NavIco src="navbar/10-targets.png"    w={25} h={25} alt="targets"     />, label: 'Targets'   },
-  {                   icon: <NavIco src="navbar/11-reports.png"    w={25} h={25} alt="reports"     />, label: 'Reports'   },
+  { to: '/dashboard', icon: <NavIco src="navbar/02-dashboard.png"  w={18} h={18} alt="dashboard"  />, label: 'Dashboard',  live: true },
+  { to: '/leads',     icon: <NavIco src="navbar/03-leads.png"      w={20} h={20} alt="leads"       />, label: 'Leads',      live: true },
+  { to: '/customers', icon: <NavIco src="navbar/04-customers.png"  w={20} h={20} alt="customers"   />, label: 'Customers',  live: true },
+  { to: '/followups', icon: <NavIco src="navbar/05-follow-ups.png"  w={18} h={18} alt="follow ups"  />, label: 'Follow Ups', live: true },
+  { to: '/quotations',icon: <NavIco src="navbar/07-quotes.png" w={18} h={18} alt="quotations"  />, label: 'Quotations', live: true },
+  {                   icon: <NavIco src="navbar/06-bookings.png"   w={18} h={18} alt="bookings"    />, label: 'Bookings'  },
+  {                   icon: <NavIco src="navbar/08-invoices.png"   w={18} h={18} alt="invoices"    />, label: 'Invoices'  },
+  {                   icon: <NavIco src="navbar/09-deliveries.png" w={18} h={18} alt="deliveries"  />, label: 'Deliveries'},
+  {                   icon: <NavIco src="navbar/10-targets.png"    w={18} h={18} alt="targets"     />, label: 'Targets'   },
+  {                   icon: <NavIco src="navbar/11-reports.png"    w={18} h={18} alt="reports"     />, label: 'Reports'   },
 ]
 
 // Admin menu
 const ADMIN_MENU = [
   { to: '/admin',        icon: <UsersIcon w={20} h={18} />,  label: 'Users',        live: true },
   { to: '/admin/import', icon: <ImportIcon w={18} h={20} />, label: 'Import Leads', live: true },
+  { to: '/admin/activity-log', icon: <ActivityIcon w={18} h={18} />, label: 'Activity Log', live: true },
   {                      icon: <SettingsIcon w={18} h={18} />, label: 'Settings'                 },
 ]
 
@@ -110,22 +124,27 @@ export default function Layout({ title, sub, back, children }) {
   return (
     <div className={`app-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
       <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`}>
-        <button
-          type="button"
-          className="sidebar-collapse-btn"
-          onClick={() => setCollapsed((c) => !c)}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? '›' : '‹'}
-        </button>
-
         <div className="brand-row">
-          {/* TODO: swap for your logo → <NavIco src="brand-logo.svg" w={32} h={32} alt="SK CRM" /> */}
-          <span className="brand-logo">
-            <NavIco src="navbar/01-crm.png" w={33} h={33} alt="SK CRM" />
+          <span className="brand-row-text">
+            {/* TODO: swap for your logo → <NavIco src="brand-logo.svg" w={32} h={32} alt="SK CRM" /> */}
+            <span className="brand-logo">
+              <NavIco src="navbar/01-crm.png" w={33} h={33} alt="SK CRM" />
+            </span>
+            <span className="brand-logo-text">CRM</span>
           </span>
-          <span className="brand-logo-text">CRM</span>
+
+          {/* Only visible while expanded — sits beside the logo, no box/border. */}
+          {!collapsed && (
+            <button
+              type="button"
+              className="sidebar-toggle-arrow"
+              onClick={() => setCollapsed((c) => !c)}
+              title="Collapse sidebar"
+              aria-label="Collapse sidebar"
+            >
+              ‹
+            </button>
+          )}
         </div>
 
         <nav className="nav">
@@ -154,15 +173,34 @@ export default function Layout({ title, sub, back, children }) {
         </nav>
 
         <div className="sidebar-footer">
-          <span className="sidebar-footer-text">
-            <strong>{user?.full_name}</strong>{user?.role} · {user?.login_id}
-          </span>
-          <div style={{ marginTop: 10 }}>
-            <a onClick={logout} title="Sign out"
-               style={{ color: '#9FBBDE', fontWeight: 600, cursor: 'pointer' }}>
-              ← <span className="sidebar-footer-text">Sign out</span>
-            </a>
+          {/* Only visible while collapsed — moves the toggle down here so it
+              stays reachable once the top-of-brand arrow disappears. */}
+          {collapsed && (
+            <button
+              type="button"
+              className="sidebar-toggle-arrow bottom"
+              onClick={() => setCollapsed((c) => !c)}
+              title="Expand sidebar"
+              aria-label="Expand sidebar"
+            >
+              ›
+            </button>
+          )}
+
+          
+
+          <div className="sidebar-user">
+            <span className="avatar-sm">{initials(user?.full_name)}</span>
+            <div className="sidebar-user-text">
+              <div className="sidebar-user-name">{user?.full_name}</div>
+              <div className="sidebar-user-role">{user?.role} · {user?.login_id}</div>
+            </div>
           </div>
+
+          <button type="button" className="nav-item signout-item" onClick={logout} title="Sign out">
+            <span className="nav-ico"><LogoutIcon w={18} h={18} /></span>
+            <span className="nav-label">Sign out</span>
+          </button>
         </div>
       </aside>
 

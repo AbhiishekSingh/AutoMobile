@@ -200,14 +200,24 @@ def build_quotation_pdf(quotation: Quotation, branch_name: str, branch_address: 
     story.append(emi_table)
     story.append(Spacer(1, 14))
 
-    docs = quotation.documents
+    # Only the documents the user actually checked as "required" belong on
+    # the printed quotation — unchecked/optional ones are skipped entirely.
+    docs = [d for d in quotation.documents if d.required]
     mid = (len(docs) + 1) // 2
     left_docs, right_docs = docs[:mid], docs[mid:]
+    # Same font limitation as the HSPR checkboxes above: the base Helvetica
+    # font doesn't include the Unicode "☑" glyph, so it was rendering as a
+    # generic missing-character box instead of a visible check. Draw a
+    # green "[X]" mark instead, which renders reliably in every viewer.
+    def _doc_mark(name: str) -> str:
+        return f'<font color="#2e9e4f"><b>[X]</b></font> {name}'
     doc_rows = []
     for i in range(max(len(left_docs), len(right_docs))):
-        l = f"☐ {left_docs[i].document_name}" if i < len(left_docs) else ""
-        r = f"☐ {right_docs[i].document_name}" if i < len(right_docs) else ""
+        l = _doc_mark(left_docs[i].document_name) if i < len(left_docs) else ""
+        r = _doc_mark(right_docs[i].document_name) if i < len(right_docs) else ""
         doc_rows.append([Paragraph(l, normal), Paragraph(r, normal)])
+    if not doc_rows:
+        doc_rows = [[Paragraph("-", normal), Paragraph("", normal)]]
     doc_box = Table(doc_rows, colWidths=[90 * mm, 90 * mm])
     doc_wrapper = Table([[Paragraph("<b>DOCUMENTS REQUIRED</b>", ParagraphStyle(
         "docs_head", parent=label_bold, textColor=ORANGE, fontSize=11))],

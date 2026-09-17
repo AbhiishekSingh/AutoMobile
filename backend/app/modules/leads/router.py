@@ -15,6 +15,7 @@ from app.modules.leads.schemas import (CustomerListResponse, FollowupCreate,
                                        FollowupListResponse, LeadCreate,
                                        LeadDetail, LeadListResponse, LeadUpdate,
                                        Lookups, PBADashboard, TestRideCreate)
+from app.modules.audit.service import record_changes
 from app.modules.leads.service import bucket_filter, mask_phone, scope
 from app.modules.notifications.models import NotificationType
 from app.modules.notifications.service import create_notification
@@ -157,8 +158,18 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
         raise HTTPException(404, "Lead not found")
     data = body.model_dump(exclude_unset=True)   # only the keys actually sent
 
-    # customer fields
+    # Snapshot "before" values up front, for every field this endpoint can
+    # touch, so we can diff old-vs-new after applying the edits below and
+    # log exactly what changed (see audit/service.py). Capturing this before
+    # any setattr() runs is what makes "old_value" actually the old value.
     cust = lead.customer
+    cust_before = {f: getattr(cust, f, None) for f in CUSTOMER_FIELDS} if cust else {}
+    lead_before = {f: getattr(lead, f, None) for f in LEAD_FIELDS}
+    lead_before["current_disposition_id"] = lead.current_disposition_id
+    lead_before["enquiry_stage"] = lead.enquiry_stage
+    lead_before["assigned_user_id"] = lead.assigned_user_id
+
+    # customer fields
     for f in CUSTOMER_FIELDS:
         if f in data and cust is not None:
             setattr(cust, f, data[f])
@@ -198,6 +209,17 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
             )
         # new_assignee_id == previous_assignee_id (re-saving the same person) and
         # new_assignee_id is None (unassigning) both intentionally skip notifying.
+
+    # Log every field that actually changed. Comparing against the snapshot
+    # taken above (not against `data`) means a value sent-but-unchanged (e.g.
+    # re-saving the same phone number) correctly produces no audit row.
+    if cust is not None:
+        record_changes(db, entity_type="customer", entity_id=cust.customer_id,
+                       before=cust_before, after=cust, fields=CUSTOMER_FIELDS,
+                       changed_by_user_id=user.user_id)
+    record_changes(db, entity_type="lead", entity_id=lead.lead_id, before=lead_before,
+                   after=lead, fields=LEAD_FIELDS + ("current_disposition_id",
+                   "enquiry_stage", "assigned_user_id"), changed_by_user_id=user.user_id)
 
     db.commit()
     return {"ok": True}

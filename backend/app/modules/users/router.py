@@ -2,14 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_roles
+from app.core.deps import get_current_user, require_roles
 from app.core.security import hash_password
+from app.modules.audit.service import record_changes
 from app.modules.users.models import AppUser
 from app.modules.users.schemas import (PasswordReset, UserCreate, UserOut,
                                         UserUpdate)
 
 router = APIRouter(prefix="/users", tags=["users"],
                    dependencies=[Depends(require_roles("ADMIN"))])
+
+USER_TRACKED_FIELDS = ("full_name", "email", "role", "branch_id", "is_active")
 
 
 @router.get("", response_model=list[UserOut])
@@ -29,12 +32,16 @@ def create_user(body: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{user_id}", response_model=UserOut)
-def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db)):
+def update_user(user_id: int, body: UserUpdate, actor: AppUser = Depends(get_current_user),
+                db: Session = Depends(get_db)):
     user = db.get(AppUser, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    before = {f: getattr(user, f, None) for f in USER_TRACKED_FIELDS}
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(user, field, value)
+    record_changes(db, entity_type="user", entity_id=user.user_id, before=before,
+                   after=user, fields=USER_TRACKED_FIELDS, changed_by_user_id=actor.user_id)
     db.commit(); db.refresh(user)
     return user
 

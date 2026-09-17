@@ -3,9 +3,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from fastapi.responses import Response
 from app.modules.quotations.pdf import build_quotation_pdf
-from app.modules.quotations.whatsapp import (WhatsAppNotConfigured,
-                                             WhatsAppSendError,
-                                             send_quotation_pdf)
+from app.modules.quotations.email import (EmailNotConfigured, EmailSendError,
+                                          send_quotation_email)
+# WhatsApp sending is temporarily disabled while the Meta production message
+# template is pending approval (~1 week) — see the commented-out endpoint
+# below and "Send via Email" as the stopgap. Re-enable by uncommenting both
+# this import and the endpoint once the template is approved.
+# from app.modules.quotations.whatsapp import (WhatsAppNotConfigured,
+#                                              WhatsAppSendError,
+#                                              send_quotation_pdf)
 from app.core.database import get_db, now_ist
 from app.core.deps import get_current_user, require_roles
 from app.modules.leads.models import Lead
@@ -162,14 +168,60 @@ def get_quotation_pdf(quotation_id: int, user: AppUser = Depends(get_current_use
                     headers={"Content-Disposition": f'inline; filename="{quotation.quotation_no}.pdf"'})
 
 
-@router.post("/quotations/{quotation_id}/whatsapp-send",
+# --- "Send via WhatsApp" temporarily disabled ------------------------------
+# The Meta production message template is pending approval (~1 week).
+# "Send via Email" below is the stopgap in the meantime. To re-enable:
+# uncomment the whatsapp import near the top of this file, and uncomment
+# the whole block below.
+#
+# @router.post("/quotations/{quotation_id}/whatsapp-send",
+#             dependencies=[Depends(require_roles(*READ_ROLES))])
+# def send_quotation_whatsapp(quotation_id: int, user: AppUser = Depends(get_current_user),
+#                             db: Session = Depends(get_db)):
+#     """Sends the quotation PDF straight to the customer's WhatsApp as a
+#     document attachment, via Meta's approved WhatsApp template (see
+#     app/modules/quotations/whatsapp.py). On success, marks the quotation as
+#     SHARED so it shows correctly in the Quotation Funnel dashboard chart.
+#     """
+#     quotation = _get_or_404(db, quotation_id, user)
+#     branch = quotation.lead.branch if quotation.lead else None
+#     pdf_bytes = build_quotation_pdf(
+#         quotation,
+#         branch_name=branch.name if branch else "S.K Automobiles",
+#         branch_address=branch.address if branch and branch.address else "-",
+#         branch_contact=branch.contact_no if branch else None,
+#     )
+#
+#     try:
+#         message_id = send_quotation_pdf(
+#             contact_no=quotation.contact_no,
+#             pdf_bytes=pdf_bytes,
+#             filename=f"{quotation.quotation_no}.pdf",
+#             customer_name=quotation.customer_name,
+#             model_name=quotation.model.name if quotation.model else "",
+#         )
+#     except WhatsAppNotConfigured as e:
+#         raise HTTPException(status_code=400, detail=str(e))
+#     except WhatsAppSendError as e:
+#         raise HTTPException(status_code=502, detail=str(e))
+#
+#     quotation.status = QuotationStatus.SHARED
+#     db.commit()
+#
+#     return {"success": True, "message_id": message_id, "sent_to": quotation.contact_no}
+# -----------------------------------------------------------------------------
+
+
+@router.post("/quotations/{quotation_id}/email-send",
             dependencies=[Depends(require_roles(*READ_ROLES))])
-def send_quotation_whatsapp(quotation_id: int, user: AppUser = Depends(get_current_user),
-                            db: Session = Depends(get_db)):
-    """Sends the quotation PDF straight to the customer's WhatsApp as a
-    document attachment, via Meta's approved WhatsApp template (see
-    app/modules/quotations/whatsapp.py). On success, marks the quotation as
-    SHARED so it shows correctly in the Quotation Funnel dashboard chart.
+def send_quotation_email_route(quotation_id: int, user: AppUser = Depends(get_current_user),
+                               db: Session = Depends(get_db)):
+    """Emails the quotation PDF straight to the customer's email address as
+    an attachment (see app/modules/quotations/email.py). Stopgap for "Send
+    via WhatsApp" while the Meta template is pending approval — on success,
+    marks the quotation as SHARED, same as the WhatsApp path did, so the
+    Quotation Funnel dashboard chart doesn't need to know or care which
+    channel was actually used.
     """
     quotation = _get_or_404(db, quotation_id, user)
     branch = quotation.lead.branch if quotation.lead else None
@@ -181,22 +233,23 @@ def send_quotation_whatsapp(quotation_id: int, user: AppUser = Depends(get_curre
     )
 
     try:
-        message_id = send_quotation_pdf(
-            contact_no=quotation.contact_no,
+        result = send_quotation_email(
+            to_email=quotation.email,
             pdf_bytes=pdf_bytes,
             filename=f"{quotation.quotation_no}.pdf",
             customer_name=quotation.customer_name,
             model_name=quotation.model.name if quotation.model else "",
+            quotation_no=quotation.quotation_no,
         )
-    except WhatsAppNotConfigured as e:
+    except EmailNotConfigured as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except WhatsAppSendError as e:
+    except EmailSendError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
     quotation.status = QuotationStatus.SHARED
     db.commit()
 
-    return {"success": True, "message_id": message_id, "sent_to": quotation.contact_no}
+    return {"success": True, "result": result, "sent_to": quotation.email}
 
 
 @router.patch("/quotations/{quotation_id}/status", response_model=QuotationDetail,

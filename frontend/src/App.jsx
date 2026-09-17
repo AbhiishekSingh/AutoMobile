@@ -7,6 +7,7 @@ import LoginPage from './features/auth/LoginPage'
 import RoleHome from './features/home/RoleHome'
 import UsersPage from './features/admin/UsersPage'
 import ImportPage from './features/admin/ImportPage'
+import ActivityLogPage from './features/admin/ActivityLogPage'
 import LeadsPage from './features/leads/LeadsPage'
 import CustomerDetailPage from './features/leads/CustomerDetailPage'
 import CustomersPage from './features/leads/CustomersPage'
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="/rto" element={<ProtectedRoute roles={['RTO']}><RoleHome title="RTO Dashboard" /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute roles={['ADMIN']}><UsersPage /></ProtectedRoute>} />
           <Route path="/admin/import" element={<ProtectedRoute roles={['ADMIN']}><ImportPage /></ProtectedRoute>} />
+          <Route path="/admin/activity-log" element={<ProtectedRoute roles={['ADMIN']}><ActivityLogPage /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     WHATSAPP_TEMPLATE_NAME: str = "quotation_shared"
     WHATSAPP_TEMPLATE_LANG: str = "en_US"
 
+    # Email (SMTP) — stopgap for "Send via WhatsApp" while the Meta production
+    # template is pending approval (~1 week). Works with Gmail (use an App
+    # Password, not your normal password), your business mailbox, or any
+    # standard SMTP provider. Left blank by default; the "Send via Email"
+    # feature returns a clear error until configured, same pattern as WhatsApp.
+    EMAIL_SMTP_HOST: str = ""              # e.g. "smtp.gmail.com"
+    EMAIL_SMTP_PORT: int = 587              # 587 = STARTTLS (most common), 465 = SSL
+    EMAIL_SMTP_USERNAME: str = ""
+    EMAIL_SMTP_PASSWORD: str = ""
+    EMAIL_FROM_ADDRESS: str = ""            # e.g. "S.K Automobiles <no-reply@skautomobiles.in>"
+    EMAIL_USE_SSL: bool = False              # set True if using port 465 instead of 587
+
     class Config:
         env_file = ".env"
 

@@ -18,10 +18,13 @@ h2,h3,h4{font-family:'Segoe UI',sans-serif;}
 .app-shell.sidebar-collapsed{grid-template-columns:76px 1fr;}
 .sidebar{background:var(--navy); color:#fff; padding:22px 16px; display:flex; flex-direction:column;
   height:100%; overflow:visible; position:relative; transition:width .18s ease; flex-shrink:0;}
-.sidebar-collapse-btn{position:absolute; top:26px; right:-12px; width:24px; height:24px; border-radius:50%;
-  background:var(--sky); color:#fff; border:2px solid var(--navy); display:flex; align-items:center; justify-content:center;
-  cursor:pointer; font-size:11px; z-index:30; padding:0; line-height:1;}
-.sidebar-collapse-btn:hover{background:#2568B0;}
+/* Plain arrow — no box/border, just the glyph, matching the reference UI. */
+.sidebar-toggle-arrow{background:none; border:none; appearance:none; -webkit-appearance:none; outline:none;
+  color:#9FBBDE; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+  cursor:pointer; font-size:18px; z-index:30; padding:2px; line-height:1; transition:color .15s ease;}
+.sidebar-toggle-arrow:hover{color:#fff;}
+/* Bottom placement used only while the sidebar is collapsed. */
+.sidebar-toggle-arrow.bottom{width:100%; padding:8px 0; margin-bottom:6px;}
 .brand{padding:0 8px 18px; border-bottom:1px solid rgba(255,255,255,.1); margin-bottom:14px;}
 .brand-name{font-weight:800; font-size:16px; letter-spacing:.02em; color:#fff;}
 .brand-tag{color:#8FB4E0; font-size:10px; letter-spacing:.13em; font-weight:600; margin-top:4px; text-transform:uppercase; display:block;}
@@ -32,8 +35,17 @@ h2,h3,h4{font-family:'Segoe UI',sans-serif;}
 .nav-item{display:block; padding:9px 12px; border-radius:var(--radius-sm); color:#C9DAF0; text-decoration:none; font-size:13.5px; font-weight:500; margin-bottom:2px;}
 .nav-item:hover{background:rgba(255,255,255,.06);}
 .nav-item.active{background:var(--sky); color:#fff; font-weight:600;}
-.sidebar-footer{margin-top:auto; padding:14px 8px 0; border-top:1px solid rgba(255,255,255,.1); font-size:12px; color:#9FBBDE; flex-shrink:0;}
-.sidebar-footer strong{color:#fff;}
+.sidebar-footer{margin-top:auto; padding-top:14px; border-top:1px solid rgba(255,255,255,.1); font-size:12px; color:#9FBBDE; flex-shrink:0;
+  display:flex; flex-direction:column; gap:2px;}
+/* Sign out row — reuses .nav-item's look, reset as a real <button>. */
+.signout-item{background:none; border:none; appearance:none; -webkit-appearance:none; outline:none;
+  width:100%; text-align:left; font:inherit; cursor:pointer;}
+.sidebar-user{display:flex; align-items:center; gap:10px; padding:10px 12px 2px; margin-top:6px;}
+.avatar-sm{width:34px; height:34px; border-radius:50%; background:var(--sky); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0;}
+.sidebar-user-text{min-width:0; overflow:hidden;}
+.sidebar-user-name{font-size:13px; font-weight:700; color:#fff; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.sidebar-user-role{font-size:11px; color:#9FBBDE; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .main{background:var(--mist); min-width:0; height:100%; overflow-y:auto; display:flex; flex-direction:column;}
 .topbar{background:#fff; border-bottom:1px solid var(--border); padding:14px 26px; display:flex; align-items:center; gap:18px; position:sticky; top:0; z-index:20; flex-shrink:0;}
 .page-title{font-size:19px; margin:0;}
@@ -181,6 +193,8 @@ textarea.input{resize:vertical;}
 
 /* ===== Prototype-match additions ===== */
 .brand-row{display:flex; align-items:center; gap:11px; padding:2px 8px 18px; border-bottom:1px solid rgba(255,255,255,.1); margin-bottom:12px; flex-shrink:0; transition:padding .18s ease, justify-content .18s ease;}
+.brand-row-text{display:flex; align-items:center; gap:11px; flex:1; min-width:0;}
+.sidebar.collapsed .brand-row{flex-direction:column; gap:14px;}
 .brand-logo{width:45px; height:45px; border-radius:11px; background:var(--sky); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;}
 .brand-logo img{filter:brightness(0) invert(1);}
 .brand-logo-text{font-weight:800; font-size:20px; letter-spacing:.04em; color:#fff; white-space:nowrap;}
@@ -206,9 +220,17 @@ textarea.input{resize:vertical;}
 .sidebar.collapsed .nav-label,
 .sidebar.collapsed .nav-soon,
 .sidebar.collapsed .brand-logo-text,
-.sidebar.collapsed .sidebar-footer-text{display:none;}
+.sidebar.collapsed .sidebar-user-text{display:none;}
 .sidebar.collapsed .nav-item{justify-content:center; padding:10px 0;}
-.sidebar.collapsed .sidebar-footer{display:flex; flex-direction:column; align-items:center; gap:8px;}
+.sidebar.collapsed .sidebar-footer{align-items:center;}
+.sidebar.collapsed .sidebar-user{justify-content:center; padding:6px 0 0;}
+/* Force the arrow / sign-out / avatar rows onto one identical centered
+   layout so all three line up on the same vertical axis when collapsed. */
+.sidebar.collapsed .sidebar-toggle-arrow.bottom,
+.sidebar.collapsed .signout-item,
+.sidebar.collapsed .sidebar-user{
+  display:flex; width:100%; justify-content:center; align-items:center;
+  padding-left:0; padding-right:0; margin-left:0; margin-right:0; text-align:center;}
 
 .tb-back{display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:12.5px; font-weight:600; text-decoration:none; cursor:pointer; margin-bottom:2px;}
 .tb-back:hover{color:var(--sky);}
@@ -242,7 +264,7 @@ textarea.input{resize:vertical;}
   .sidebar.collapsed .brand-logo-text{display:inline;}
   .sidebar.collapsed .brand-row{justify-content:flex-start;}
   .sidebar.collapsed .nav-item{justify-content:flex-start; padding:9px 12px;}
-  .sidebar-collapse-btn{display:none;}
+  .sidebar-toggle-arrow{display:none;}
   .mobile-toggle{display:inline-flex;}
   .sidebar-overlay{display:block; position:fixed; inset:0; background:rgba(11,37,67,.45); z-index:55;
     opacity:0; pointer-events:none; transition:opacity .2s ease;}

@@ -4,6 +4,7 @@ import Layout from '../../components/Layout'
 import { Empty, Loading, fmtDate, fmtTime, fmtDateTime } from '../../components/ui'
 import QuotationForm from '../quotations/QuotationForm'
 import api from '../../lib/api'
+import { useAuth } from '../../lib/auth'
 
 // ---- icon helper ----
 function Ico({ src, w = 16, h = 16, alt = '' }) {
@@ -31,6 +32,9 @@ function dispClass(name) {
 const Badge = ({ name, kind }) =>
   name ? <span className={'badge ' + (kind === 'disp' ? dispClass(name) : oppClass(name))}>{name}</span>
        : <span style={{ color: '#94A3B8' }}>—</span>
+
+// "full_name" -> "Full Name", for readable audit-log field labels.
+const fieldLabel = (f) => f.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 // Convert an IST-naive ISO string to a datetime-local input value (YYYY-MM-DDTHH:MM).
 const toInput = (iso) => (iso ? String(iso).replace(' ', 'T').slice(0, 16) : '')
@@ -98,6 +102,7 @@ const NUMERIC = new Set(['mode_id', 'model_id', 'opportunity_status_id', 'dispos
 export default function CustomerDetailPage() {
   const { id } = useParams()
   const nav = useNavigate()
+  const { user } = useAuth()
   const [lead, setLead] = useState(null)
   const [lookups, setLookups] = useState(null)
   const [err, setErr] = useState('')
@@ -111,6 +116,10 @@ export default function CustomerDetailPage() {
   const [showQuotationForm, setShowQuotationForm] = useState(false)
   const [quotations, setQuotations] = useState(null)
 
+  // Change history — Owner/GM/Admin only, matching the backend's VIEW_ROLES.
+  const canViewHistory = ['OWNER', 'GM', 'ADMIN'].includes(user?.role)
+  const [history, setHistory] = useState(null)
+
   function load() {
     setErr('')
     api.get(`/leads/${id}`).then((r) => setLead(r.data)).catch(() => setErr('Lead not found.'))
@@ -118,11 +127,25 @@ export default function CustomerDetailPage() {
   function loadQuotations() {
     api.get(`/leads/${id}/quotations`).then((r) => setQuotations(r.data)).catch(() => setQuotations([]))
   }
+  function loadHistory(customerId) {
+    if (!canViewHistory) return
+    Promise.all([
+      api.get(`/audit-log/lead/${id}`).catch(() => ({ data: [] })),
+      customerId ? api.get(`/audit-log/customer/${customerId}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+    ]).then(([leadRes, custRes]) => {
+      const combined = [...leadRes.data, ...custRes.data]
+        .sort((a, b) => new Date(b.changed_at) - new Date(a.changed_at))
+      setHistory(combined)
+    })
+  }
   useEffect(() => {
     load()
     loadQuotations()
     api.get('/lookups').then((r) => setLookups(r.data)).catch(() => {})
   }, [id])
+  useEffect(() => {
+    if (lead?.customer_id) loadHistory(lead.customer_id)
+  }, [lead?.customer_id])
 
   function startEdit(section) {
     if (!lead) return
@@ -152,6 +175,7 @@ export default function CustomerDetailPage() {
     try {
       await api.patch(`/leads/${id}`, payload)
       setEditing(null); setMsg('Changes saved.'); load()
+      if (lead?.customer_id) loadHistory(lead.customer_id)
     } catch (e) {
       setMsg(e.response?.data?.detail || 'Could not save changes.')
     }
@@ -298,6 +322,34 @@ export default function CustomerDetailPage() {
           {lead.followups.length === 0 && <Empty>No follow-ups logged yet.</Empty>}
         </div>
       </div>
+
+      {/* CHANGE HISTORY — who edited what, and what it changed from/to.
+          Owner/GM/Admin only, matching the backend's /audit-log restriction. */}
+      {canViewHistory && (
+        <div className="card">
+          <div className="card-header">
+            <h3>Change History <span className="muted-note">({history ? history.length : '…'})</span></h3>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Date &amp; Time</th><th>Field</th><th>Changed From</th><th>Changed To</th><th>By</th></tr></thead>
+              <tbody>
+                {history && history.map((h) => (
+                  <tr key={h.id}>
+                    <td className="cell-muted">{fmtDateTime(h.changed_at)}</td>
+                    <td>{fieldLabel(h.field_name)}</td>
+                    <td className="cell-muted">{h.old_value || '—'}</td>
+                    <td>{h.new_value || '—'}</td>
+                    <td>{h.changed_by_name || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {history === null && <Loading />}
+            {history && history.length === 0 && <Empty>No changes logged yet.</Empty>}
+          </div>
+        </div>
+      )}
 
       {/* ADD NEW FOLLOW UP */}
       <div className="card">

@@ -179,35 +179,40 @@ export default function DashboardPage() {
       {data && (
         <>
           {/* ── Performance Tracker + Today's ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr) 1.15fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr) 1.15fr', gap: 16, marginBottom: 22 }}>
             <div style={{
               gridColumn: 'span 4', fontWeight: 800, fontSize: 13, letterSpacing: '0.02em',
-              color: '#1B2A3A', paddingLeft: 2,
+              color: '#1B2A3A', paddingLeft: 2, marginBottom: 16,
             }}>
               PERFORMANCE TRACKER
             </div>
             <div style={{
               fontWeight: 800, fontSize: 13, letterSpacing: '0.02em',
-              color: '#1B2A3A', paddingLeft: 2,
+              color: '#1B2A3A', paddingLeft: 2, marginBottom: 16,
             }}>
               TODAY&apos;S
             </div>
 
             {TREND_TILES.map((t) => (
-              <div key={t.key} className="card">
-                <div className="card-pad" style={{ paddingTop: 16, paddingBottom: 16 }}>
-                  <div style={{ color: 'var(--muted)', fontWeight: 800, fontSize: 11.5, letterSpacing: '0.04em' }}>
-                    {t.label}
-                  </div>
-                  <div style={{
-                    width: 52, height: 52, borderRadius: '50%', background: t.accentLight,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    margin: '14px 0 16px',
-                  }}>
-                    {t.icon}
-                  </div>
-                  <div style={{ fontSize: 30, fontWeight: 800, color: '#1B2A3A' }}>
-                    {data[t.key] ?? 0}
+              <div key={t.key} className="card" style={{ marginBottom: 0 }}>
+                <div className="card-pad" style={{
+                  paddingTop: 16, paddingBottom: 25, height: '100%',
+                  display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                }}>
+                  <div>
+                    <div style={{ color: 'var(--muted)', fontWeight: 800, fontSize: 11.5, letterSpacing: '0.04em' }}>
+                      {t.label}
+                    </div>
+                    <div style={{
+                      width: 52, height: 52, borderRadius: '50%', background: t.accentLight,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      margin: '20px 0 16px',
+                    }}>
+                      {t.icon}
+                    </div>
+                    <div style={{ fontSize: 30, fontWeight: 800, color: '#1B2A3A' }}>
+                      {data[t.key] ?? 0}
+                    </div>
                   </div>
                   <div style={{ height: 3, borderRadius: 2, background: t.accent, marginTop: 12 }} />
                 </div>
@@ -217,8 +222,10 @@ export default function DashboardPage() {
             {/* ── Today's cards ── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {ACTIVITY_TILES.map((t) => (
-                <div key={t.key} className="card" style={{ marginBottom: 0 }}>
-                  <div className="card-pad" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div key={t.key} className="card" style={{ marginBottom: 0, flex: 1, display: 'flex' }}>
+                  <div className="card-pad" style={{
+                    display: 'flex', alignItems: 'center', gap: 14, width: '100%',
+                  }}>
                     <div style={{
                       width: 44, height: 44, minWidth: 44, borderRadius: '50%', background: t.accentLight,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
