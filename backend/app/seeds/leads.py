@@ -5,15 +5,18 @@ from datetime import datetime, timedelta
 from app.core.database import Base, SessionLocal, engine
 from app.db import base as _base  # register models
 from app.modules.leads import models as m
+from app.modules.leads.lookup_names import build_index, lookup_key
+from app.modules.leads.service import (FOLLOWUP_DISPOSITIONS, OPPORTUNITY_STATUSES,
+                                       sync_dropdown_lists)
 from app.modules.users.models import AppUser, Branch
 
 ENQUIRY_MODES = ["Hyperlocal", "Digital", "Aggregators", "Dealer Digital",
                  "Cross Sell", "Activity", "MBO", "Tele-In", "Walk-in"]
-OPPORTUNITY = ["HOT LEAD", "WARM LEAD", "COLD LEAD", "BOOKING DONE", "BIKE DELIVERED",
-               "FUTURE LEAD", "CLOSED LEAD", "DEAD LEAD", "LOST TO CO-DEALER", "LOST TO OTHER BRAND"]
-DISPOSITIONS = ["RINGING", "CALL LATER", "PLANNING", "SWITCH OFF", "PLAN CANCEL",
-                "TEST RIDE BOOKED", "TEST RIDE COMPLETED", "BOOKING DONE",
-                "DELIVERY DONE", "PRODUCT QUALITY ISSUE"]
+# Opportunity statuses + follow-up dispositions live in
+# app/modules/leads/service.py so the API and the seed share one list.
+# Edit them there and restart the backend.
+OPPORTUNITY = OPPORTUNITY_STATUSES
+DISPOSITIONS = FOLLOWUP_DISPOSITIONS
 LOST_REASONS = ["Casual Enquiry", "Incorrect No.", "Out of city", "Stock Issue",
                 "Price/Finance concern"]
 MODELS = ["DUKE 160 TFT", "DUKE 200 BS VI", "RC 160", "RC 200", "DUKE 250", "DUKE 390",
@@ -40,14 +43,21 @@ def run():
     db = SessionLocal()
     try:
         def seed_lookup(Model, names):
+            # Match on lookup_key (ignores case/punctuation/word order) so
+            # re-running seeds after an import never adds "Cross Sell" next
+            # to an imported "Cross-Sell", or "DUKE 250" next to "250 Duke".
+            existing = build_index(db.query(Model).all())
             for n in names:
-                if not db.query(Model).filter(Model.name == n).first():
-                    db.add(Model(name=n))
+                k = lookup_key(n)
+                if k not in existing:
+                    obj = Model(name=n)
+                    db.add(obj)
+                    existing[k] = obj
             db.commit()
 
         seed_lookup(m.EnquiryMode, ENQUIRY_MODES)
-        seed_lookup(m.OpportunityStatus, OPPORTUNITY)
-        seed_lookup(m.Disposition, DISPOSITIONS)
+        for table, (active, off) in sync_dropdown_lists(db).items():
+            print(f"{table}: {active} in dropdown, {off} switched off.")
         seed_lookup(m.LostReason, LOST_REASONS)
         seed_lookup(m.BikeModel, MODELS)
 

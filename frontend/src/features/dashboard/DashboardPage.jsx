@@ -8,6 +8,8 @@ import SlaComplianceChart from './SlaComplianceChart'
 import LeadSourceChart from './LeadSourceChart'
 import LostReasonsChart from './LostReasonsChart'
 import QuotationFunnelChart from './QuotationFunnelChart'
+import TestRidesChart from './TestRidesChart'
+import RatioGaugesChart from './RatioGaugesChart'
 
 const TREND_TILES = [
   {
@@ -255,6 +257,22 @@ export default function DashboardPage() {
               <Ring pct={data.td_completed_ratio}  label="Test Drives Completed"   color="#059669" />
             </div>
           </div> */}
+
+          {/* ── Test Rides + Target / TD ratios (from /pba/dashboard, follow the period) ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+            <TestRidesChart
+              completed={data.test_rides_completed ?? 0}
+              scheduled={data.test_rides_scheduled ?? 0}
+            />
+            <RatioGaugesChart
+              targetRatio={data.total_target_ratio ?? 0}
+              targetAchieved={data.target_achieved ?? 0}
+              targetTotal={data.target_total ?? 0}
+              tdRatio={data.td_completed_ratio ?? 0}
+              tdCompleted={data.test_rides_completed ?? 0}
+              tdTotal={data.test_rides_total ?? 0}
+            />
+          </div>
 
           {/* ── Charts row ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 5 }}>

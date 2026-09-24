@@ -16,7 +16,9 @@ from app.modules.leads.schemas import (CustomerListResponse, FollowupCreate,
                                        LeadDetail, LeadListResponse, LeadUpdate,
                                        Lookups, PBADashboard, TestRideCreate)
 from app.modules.audit.service import record_changes
-from app.modules.leads.service import bucket_filter, mask_phone, scope
+from app.modules.leads.lookup_names import lookup_key
+from app.modules.leads.service import (bucket_filter, check_followup_date,
+                                       dropdown_options, is_allowed, mask_phone, scope)
 from app.modules.notifications.models import NotificationType
 from app.modules.notifications.service import create_notification
 from app.modules.quotations.models import Quotation, QuotationStatus
@@ -25,13 +27,32 @@ from app.modules.users.models import AppUser, Branch, Role
 router = APIRouter(tags=["pba"])
 READ_ROLES = ("PBA", "OWNER", "GM", "ADMIN")
 
+# Enquiry-mode tiles shown first on the Leads screen (after "Total Leads").
+# Add more names here to pin them too, e.g. ["Walk-in", "Digital"].
+TILE_PIN_FIRST = ["Walk-in"]
+
 
 @router.get("/lookups", response_model=Lookups,
             dependencies=[Depends(require_roles(*READ_ROLES))])
 def lookups(db: Session = Depends(get_db)):
     q = lambda M: db.query(M).order_by(M.id).all()  # noqa: E731
-    return Lookups(enquiry_modes=q(EnquiryMode), opportunity_statuses=q(OpportunityStatus),
-                   dispositions=q(Disposition), lost_reasons=q(LostReason), models=q(BikeModel))
+    # Opportunity status + disposition: only the values in their fixed lists
+    # (leads/service.py), in list order. Old/imported values stay in the DB
+    # for history but are never offered here.
+    return Lookups(enquiry_modes=q(EnquiryMode),
+                   opportunity_statuses=dropdown_options(db, OpportunityStatus),
+                   dispositions=dropdown_options(db, Disposition),
+                   lost_reasons=q(LostReason), models=q(BikeModel))
+
+
+def _require_listed(db: Session, Model, value_id: int | None, label: str) -> None:
+    """Reject a value that isn't in the dropdown's fixed list — so the rule
+    holds even if someone calls the API directly, not just via the UI."""
+    if value_id is None:
+        return
+    row = db.get(Model, value_id)
+    if not row or not row.is_active or not is_allowed(Model, row.name):
+        raise HTTPException(400, f"Please choose a {label} from the list")
 
 
 @router.get("/leads/tiles", dependencies=[Depends(require_roles(*READ_ROLES))])
@@ -39,6 +60,12 @@ def tiles(user: AppUser = Depends(get_current_user), db: Session = Depends(get_d
     base = scope(db.query(Lead.mode_id, func.count(Lead.lead_id)), user).group_by(Lead.mode_id)
     counts = {mid: c for mid, c in base.all()}
     modes = db.query(EnquiryMode).order_by(EnquiryMode.id).all()
+    # Tiles pinned to the front, in this order, right after "Total Leads".
+    # Every other mode follows in its normal (id) order. Matching uses
+    # lookup_key, so "Walk-In" / "Walk-in" / "WALK IN" all count.
+    pinned = [lookup_key(n) for n in TILE_PIN_FIRST]
+    modes.sort(key=lambda m: pinned.index(lookup_key(m.name))
+               if lookup_key(m.name) in pinned else len(pinned))
     out = [{"key": "total", "label": "Total Leads", "count": sum(counts.values())}]
     for m in modes:
         out.append({"key": m.name, "label": m.name, "count": counts.get(m.id, 0)})
@@ -174,6 +201,27 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
         if f in data and cust is not None:
             setattr(cust, f, data[f])
 
+    # Opportunity status must come from the fixed list — but only when it
+    # actually changes, so a lead imported with an old value (e.g. "Open")
+    # can still have its other fields saved.
+    if ("opportunity_status_id" in data
+            and data["opportunity_status_id"] != lead.opportunity_status_id):
+        _require_listed(db, OpportunityStatus, data["opportunity_status_id"],
+                        "Opportunity Status")
+
+    # Next Follow-up Date: only from now up to 15 days ahead — checked only
+    # when it changes, so an older lead's existing date doesn't block saving
+    # its other status fields.
+    if data.get("next_followup_at") is not None:
+        new_fu = data["next_followup_at"]
+        cur_fu = lead.next_followup_at
+        if new_fu.tzinfo is not None or cur_fu is None or \
+                new_fu.replace(second=0, microsecond=0) != cur_fu.replace(second=0, microsecond=0):
+            try:
+                data["next_followup_at"] = check_followup_date(new_fu)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+
     # simple lead fields
     for f in LEAD_FIELDS:
         if f in data:
@@ -181,6 +229,11 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
 
     # fields that need mapping / casting
     if "disposition_id" in data:
+        # Only validate when it actually changes: a lead imported with an old
+        # disposition (e.g. "Call Later") can still have its other status
+        # fields saved without being forced to pick a new disposition.
+        if data["disposition_id"] != lead.current_disposition_id:
+            _require_listed(db, Disposition, data["disposition_id"], "Follow-up Disposition")
         lead.current_disposition_id = data["disposition_id"]
     if "enquiry_stage" in data and data["enquiry_stage"]:
         lead.enquiry_stage = EnquiryStage(data["enquiry_stage"])
@@ -232,6 +285,12 @@ def add_followup(lead_id: int, body: FollowupCreate,
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(404, "Lead not found")
+    _require_listed(db, Disposition, body.disposition_id, "Follow-up Disposition")
+    _require_listed(db, OpportunityStatus, body.opportunity_status_id, "Opportunity Status")
+    try:
+        body.next_followup_at = check_followup_date(body.next_followup_at)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     db.add(LeadFollowup(lead_id=lead_id, user_id=user.user_id, remark=body.remark,
                         contacted=body.contacted, disposition_id=body.disposition_id,
                         opportunity_status_id=body.opportunity_status_id,
@@ -361,12 +420,41 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
     # activity, independent of the period dropdown — matches the UI label.
     today_start, today_end = period_range("today")
 
-    tr_completed = scope(db.query(func.count(TestRide.id))
-                         .join(Lead, TestRide.lead_id == Lead.lead_id)
-                         .filter(TestRide.status == TestRideStatus.COMPLETED), user).scalar() or 0
-    tr_scheduled = scope(db.query(func.count(TestRide.id))
-                         .join(Lead, TestRide.lead_id == Lead.lead_id)
-                         .filter(TestRide.status == TestRideStatus.BOOKED), user).scalar() or 0
+    # ── Test rides in the selected period ──────────────────────────────────
+    # A test ride belongs to the period by its scheduled date (or, if it was
+    # never given one, the date it was created).
+    tr_date = func.coalesce(TestRide.scheduled_at, TestRide.created_at)
+
+    def test_rides(*statuses):
+        q = (db.query(func.count(TestRide.id))
+             .join(Lead, TestRide.lead_id == Lead.lead_id)
+             .filter(tr_date >= period_start, tr_date < period_end))
+        if statuses:
+            q = q.filter(TestRide.status.in_(statuses))
+        return scope(q, user).scalar() or 0
+
+    tr_completed = test_rides(TestRideStatus.COMPLETED)
+    # "Scheduled" = still upcoming: booked, or booked then moved to a new slot.
+    tr_scheduled = test_rides(TestRideStatus.BOOKED, TestRideStatus.RESCHEDULED)
+    tr_total = test_rides()   # every test ride in the period, incl. cancelled
+
+    # TD Completed Ratio = completed ÷ all test rides in the period.
+    td_ratio = round(tr_completed * 100 / tr_total) if tr_total else 0
+
+    # ── Total Target Ratio ─────────────────────────────────────────────────
+    # Same definition as the "Target Tracker" chart (dashboard/router.py), so
+    # the two never disagree: leads that reached BOOKED or INVOICED ÷ all leads
+    # enquired in the period. (There is no separate targets table yet.)
+    def leads_in_period(*stages):
+        q = db.query(func.count(Lead.lead_id)).filter(
+            Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
+        if stages:
+            q = q.filter(Lead.enquiry_stage.in_(stages))
+        return scope(q, user).scalar() or 0
+
+    target_total = leads_in_period()
+    target_achieved = leads_in_period(EnquiryStage.BOOKED, EnquiryStage.INVOICED)
+    target_ratio = round(target_achieved * 100 / target_total) if target_total else 0
 
     calls_today = scope(db.query(func.count(Lead.lead_id)).filter(
         Lead.next_followup_at.isnot(None),
@@ -384,4 +472,7 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
                         invoiced=stage(EnquiryStage.INVOICED), delivered=0,
                         calls_today=calls_today,
                         quotations_shared=quotations_shared, test_rides_completed=tr_completed,
-                        test_rides_scheduled=tr_scheduled, total_target_ratio=78, td_completed_ratio=64)
+                        test_rides_scheduled=tr_scheduled,
+                        total_target_ratio=target_ratio, td_completed_ratio=td_ratio,
+                        target_achieved=target_achieved, target_total=target_total,
+                        test_rides_total=tr_total)

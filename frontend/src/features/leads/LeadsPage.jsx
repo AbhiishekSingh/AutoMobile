@@ -25,7 +25,7 @@ function SrcIco({ src, ext = 'svg', w = 20, h = 20, alt = '' }) {
 
 const SOURCE_META = {
   total:           { icon: <SrcIco src="lead/01-total-leads"    ext="png" w={20} h={20} alt="total" />,          accent: '#7C3AED' },
-  'walk-in':       { icon: <SrcIco src="lead/10-walk-in"        ext="png" w={20} h={20} alt="walk-in" />,        accent: '#059669' },
+  'walk in':       { icon: <SrcIco src="lead/10-walk-in"        ext="png" w={20} h={20} alt="walk-in" />,        accent: '#059669' },
   hyperlocal:      { icon: <SrcIco src="lead/02-hyperlocal"     ext="png" w={20} h={20} alt="hyperlocal" />,     accent: '#D97706' },
   digital:         { icon: <SrcIco src="lead/03-digital"        ext="png" w={20} h={20} alt="digital" />,        accent: '#2563EB' },
   aggregators:     { icon: <SrcIco src="lead/04-aggregators"    ext="png" w={20} h={20} alt="aggregators" />,   accent: '#DC2626' },
@@ -33,9 +33,13 @@ const SOURCE_META = {
   'cross sell':    { icon: <SrcIco src="lead/06-cross-sell"     ext="png" w={20} h={20} alt="cross sell" />,     accent: '#0EA5E9' },
   activity:        { icon: <SrcIco src="lead/07-activity"       ext="png" w={20} h={20} alt="activity" />,       accent: '#7C3AED' },
   mbo:             { icon: <SrcIco src="lead/08-mbo"            ext="png" w={20} h={20} alt="mbo" />,            accent: '#D97706' },
-  'tele-in':       { icon: <SrcIco src="lead/09-tele-in"        ext="png" w={20} h={20} alt="tele-in" />,        accent: '#DB2777' },
+  'tele in':       { icon: <SrcIco src="lead/09-tele-in"        ext="png" w={20} h={20} alt="tele-in" />,        accent: '#DB2777' },
 }
-const sourceMeta = (key) => SOURCE_META[(key || '').toLowerCase()] || { icon: '•', accent: '#64748B' }
+// Tile names come from the DB, and imports may spell them differently
+// ("Cross-Sell" / "Cross Sell", "Walk-In" / "Walk-in"), so compare on a
+// normalised key: lowercase, any run of non-letters/digits -> one space.
+const normKey = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+const sourceMeta = (key) => SOURCE_META[normKey(key)] || { icon: '•', accent: '#64748B' }
 
 // Pipeline icon helper
 function PipeIco({ src, w = 20, h = 20, alt = '' }) {
@@ -68,6 +72,14 @@ const pipeMeta = (key) => PIPELINE_META[key] || { icon: '•', sub: '' }
 // Colour a status/disposition badge by keyword.
 function oppClass(name) {
   const n = (name || '').toUpperCase()
+  // current Opportunity Status list
+  if (n.includes('BOOKING DONE') || n === 'DELIVERED' || n.includes('TEST RIDE COMPLETED')) return 'badge-green'
+  if (n.includes('TEST RIDE BOOKED') || n.includes('OPEN LEAD')) return 'badge-sky'
+  if (n.includes('CALL LATER')) return 'badge-amber'
+  if (n.includes('RINGING') || n.includes('INCOMING OFF')) return 'badge-purple'
+  if (n.includes('FALSE ENQUIRY')) return 'badge-red'
+  if (n.includes('CASUAL') || n.includes('PLAN DROPPED')) return 'badge-gray'
+  // older / imported values (kept so history still looks right)
   if (n.includes('HOT') || n.includes('LOST')) return 'badge-red'
   if (n.includes('WARM')) return 'badge-amber'
   if (n.includes('BOOKING') || n.includes('DELIVERED') || n.includes('DELIVERY')) return 'badge-green'
@@ -77,10 +89,17 @@ function oppClass(name) {
 }
 function dispClass(name) {
   const n = (name || '').toUpperCase()
+  // current Follow-up Disposition list
+  if (n.includes('SATISFIED') || n.includes('SATISFACTION') || n.includes('PRAISE')) return 'badge-green'
+  if (n.includes('ISSUE') || n.includes('CONCERN') || n.includes('ESCALATED')) return 'badge-red'
+  if (n.includes('NOT IN STOCK') || n.includes('BUDGET')) return 'badge-amber'
+  if (n.includes('FUTURE')) return 'badge-sky'
+  if (n.includes('PLANNING')) return 'badge-green'
+  // older / imported values (kept so history still looks right)
   if (n.includes('RINGING')) return 'badge-purple'
-  if (n.includes('PLANNING') || n.includes('BOOKING')) return 'badge-green'
+  if (n.includes('BOOKING')) return 'badge-green'
   if (n.includes('TEST RIDE')) return 'badge-amber'
-  if (n.includes('SWITCH OFF') || n.includes('CANCEL') || n.includes('ISSUE')) return 'badge-red'
+  if (n.includes('SWITCH OFF') || n.includes('CANCEL')) return 'badge-red'
   return 'badge-sky'
 }
 const Badge = ({ name, kind }) =>

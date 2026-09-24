@@ -215,5 +215,9 @@ class PBADashboard(BaseModel):
     quotations_shared: int
     test_rides_completed: int
     test_rides_scheduled: int
-    total_target_ratio: int
-    td_completed_ratio: int
+    total_target_ratio: int          # % of leads in the period that reached BOOKED/INVOICED
+    td_completed_ratio: int          # % of test rides in the period that were completed
+    # the numbers behind the two ratios (shown in the chart tooltips)
+    target_achieved: int = 0
+    target_total: int = 0
+    test_rides_total: int = 0

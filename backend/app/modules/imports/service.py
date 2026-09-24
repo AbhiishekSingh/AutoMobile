@@ -26,6 +26,7 @@ from app.modules.leads.models import (BikeModel, Customer, Disposition,
                                       LeadSource, LeadType, LostReason,
                                       OpportunityStatus, SLAFlag, TestRide,
                                       TestRideStatus)
+from app.modules.leads.lookup_names import build_index, lookup_key
 from app.modules.notifications.service import create_bulk_assignment_notifications
 from app.modules.users.models import AppUser, Branch, Role
 
@@ -86,21 +87,35 @@ def _stage(v):
     return _STAGE_MAP.get(_clean(v).lower(), EnquiryStage.OPEN)
 
 
-def _get_or_create(db, Model, name, cache):
-    """Find a lookup row by name (case-insensitive), creating it if missing.
-    `cache` avoids repeat queries within one file."""
+def _get_or_create(db, Model, name, cache, active=True):
+    """Find a lookup row by name, creating it only if nothing equivalent exists.
+
+    Matching ignores case, punctuation, word order and known abbreviations
+    (see app/modules/leads/lookup_names.py), so "Cross-Sell" in a LeadSquared
+    export reuses the existing "Cross Sell" row instead of creating a second
+    "CROSS-SELL" tile, and "250 Duke" reuses "DUKE 250".
+
+    The whole lookup table is loaded once per import (these tables are tiny)
+    and kept in `cache`, so this is one query per table per file."""
     name = _clean(name)
     if not name:
         return None
-    key = (Model.__name__, name.lower())
-    if key in cache:
-        return cache[key]
-    obj = db.query(Model).filter(Model.name.ilike(name)).first()
-    if not obj:
+    key = lookup_key(name)
+    if not key:
+        return None
+    idx_key = ("lookup_index", Model.__name__)
+    index = cache.get(idx_key)
+    if index is None:
+        index = build_index(db.query(Model).all())
+        cache[idx_key] = index
+    obj = index.get(key)
+    if obj is None:
         obj = Model(name=name)
+        if not active and hasattr(Model, "is_active"):
+            obj.is_active = False   # stored for history, not offered in dropdowns
         db.add(obj)
         db.flush()
-    cache[key] = obj
+        index[key] = obj
     return obj
 
 
@@ -290,8 +305,14 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
             # ---- lookups (auto-create) ----
             mode = _get_or_create(db, EnquiryMode, row.get("Enquiry Mode"), cache)
             model = _get_or_create(db, BikeModel, row.get("Model"), cache)
-            opp = _get_or_create(db, OpportunityStatus, row.get("Opportunity Status"), cache)
-            disp = _get_or_create(db, Disposition, row.get("Follow Up Dispositions"), cache)
+            opp = _get_or_create(db, OpportunityStatus, row.get("Opportunity Status"), cache,
+                                 active=False)   # same rule as dispositions below
+            # New dispositions from a file (e.g. LeadSquared's "RNR") are saved
+            # switched OFF, so the Follow-up Disposition dropdown keeps showing
+            # only the approved list (FOLLOWUP_DISPOSITIONS in leads/service.py).
+            # The lead still shows the imported value as its disposition.
+            disp = _get_or_create(db, Disposition, row.get("Follow Up Dispositions"), cache,
+                                  active=False)
             lost = _get_or_create(db, LostReason, row.get("Lost Reason"), cache)
 
             enquiry_at = _parse_enquiry_at(row.get("Enquiry Date"), row.get("Enquiry Time"))

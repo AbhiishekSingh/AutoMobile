@@ -14,6 +14,14 @@ function Ico({ src, w = 16, h = 16, alt = '' }) {
 // ---- badge colour helpers ----
 function oppClass(name) {
   const n = (name || '').toUpperCase()
+  // current Opportunity Status list
+  if (n.includes('BOOKING DONE') || n === 'DELIVERED' || n.includes('TEST RIDE COMPLETED')) return 'badge-green'
+  if (n.includes('TEST RIDE BOOKED') || n.includes('OPEN LEAD')) return 'badge-sky'
+  if (n.includes('CALL LATER')) return 'badge-amber'
+  if (n.includes('RINGING') || n.includes('INCOMING OFF')) return 'badge-purple'
+  if (n.includes('FALSE ENQUIRY')) return 'badge-red'
+  if (n.includes('CASUAL') || n.includes('PLAN DROPPED')) return 'badge-gray'
+  // older / imported values (kept so history still looks right)
   if (n.includes('HOT') || n.includes('LOST')) return 'badge-red'
   if (n.includes('WARM')) return 'badge-amber'
   if (n.includes('BOOKING') || n.includes('DELIVERED') || n.includes('DELIVERY')) return 'badge-green'
@@ -23,10 +31,17 @@ function oppClass(name) {
 }
 function dispClass(name) {
   const n = (name || '').toUpperCase()
+  // current Follow-up Disposition list
+  if (n.includes('SATISFIED') || n.includes('SATISFACTION') || n.includes('PRAISE')) return 'badge-green'
+  if (n.includes('ISSUE') || n.includes('CONCERN') || n.includes('ESCALATED')) return 'badge-red'
+  if (n.includes('NOT IN STOCK') || n.includes('BUDGET')) return 'badge-amber'
+  if (n.includes('FUTURE')) return 'badge-sky'
+  if (n.includes('PLANNING')) return 'badge-green'
+  // older / imported values (kept so history still looks right)
   if (n.includes('RINGING')) return 'badge-purple'
-  if (n.includes('PLANNING') || n.includes('BOOKING')) return 'badge-green'
+  if (n.includes('BOOKING')) return 'badge-green'
   if (n.includes('TEST RIDE')) return 'badge-sky'
-  if (n.includes('INCORRECT') || n.includes('SWITCH OFF') || n.includes('CANCEL') || n.includes('ISSUE')) return 'badge-red'
+  if (n.includes('INCORRECT') || n.includes('SWITCH OFF') || n.includes('CANCEL')) return 'badge-red'
   return 'badge-sky'
 }
 const Badge = ({ name, kind }) =>
@@ -39,8 +54,35 @@ const fieldLabel = (f) => f.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpper
 // Convert an IST-naive ISO string to a datetime-local input value (YYYY-MM-DDTHH:MM).
 const toInput = (iso) => (iso ? String(iso).replace(' ', 'T').slice(0, 16) : '')
 
+// ---- Next Follow-up Date window: from now up to the end of the 15th day ----
+// Must match FOLLOWUP_MAX_DAYS in app/modules/leads/service.py (the server
+// checks the same rule). All values are IST wall-clock "YYYY-MM-DDTHH:MM",
+// computed without relying on the computer's own timezone setting.
+const FOLLOWUP_MAX_DAYS = 15
+const IST_OFFSET_MS = 330 * 60 * 1000
+const istInputAt = (ms) => new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 16)
+function followupLimits() {
+  const now = Date.now()
+  const today = istInputAt(now).slice(0, 10)
+  const lastDay = new Date(Date.parse(`${today}T00:00:00Z`) + FOLLOWUP_MAX_DAYS * 86400000)
+    .toISOString().slice(0, 10)
+  return { min: istInputAt(now), max: `${lastDay}T23:59`, lastDay }
+}
+// '' if OK, otherwise a message to show. 5 minutes' grace for a form that's
+// been open a little while.
+function followupError(value) {
+  if (!value) return ''
+  const { max, lastDay } = followupLimits()
+  if (value < istInputAt(Date.now() - 5 * 60 * 1000)) return "Next Follow-up Date can't be in the past"
+  if (value > max) {
+    const d = new Date(`${lastDay}T00:00:00Z`).toLocaleDateString('en-IN', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' })
+    return `Next Follow-up Date must be within the next ${FOLLOWUP_MAX_DAYS} days (up to ${d})`
+  }
+  return ''
+}
+
 // Editable field cell: shows read value, or an input/select when `editing`.
-function EField({ icon, label, editing, display, value, onChange, type = 'text', options, valueClass = '' }) {
+function EField({ icon, label, editing, display, value, onChange, type = 'text', options, valueClass = '', min, max }) {
   return (
     <div className="fg">
       <span className="fg-ico">{icon}</span>
@@ -53,7 +95,7 @@ function EField({ icon, label, editing, display, value, onChange, type = 'text',
               {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
           ) : (
-            <input className="input" type={type} value={value ?? ''} onChange={onChange} />
+            <input className="input" type={type} value={value ?? ''} onChange={onChange} min={min} max={max} />
           )
         ) : (
           <div className={'fg-value ' + valueClass}>{display ?? '—'}</div>
@@ -165,6 +207,10 @@ export default function CustomerDetailPage() {
 
   async function saveSection() {
     const keys = SECTION_FIELDS[editing] || []
+    if (keys.includes('next_followup_at') && form.next_followup_at !== toInput(lead.next_followup_at)) {
+      const fuErr = followupError(form.next_followup_at)
+      if (fuErr) { setMsg(fuErr); return }
+    }
     const payload = {}
     for (const k of keys) {
       let v = form[k]
@@ -186,6 +232,8 @@ export default function CustomerDetailPage() {
   const setTrF = (k) => (e) => setTr({ ...tr, [k]: e.target.value })
   async function addFollowup(e) {
     e.preventDefault(); setMsg('')
+    const fuErr = followupError(fu.next_followup_at)
+    if (fuErr) { setMsg(fuErr); return }
     try {
       await api.post(`/leads/${id}/followups`, {
         remark: fu.remark || null, contacted: fu.contacted === true || fu.contacted === 'true',
@@ -211,6 +259,18 @@ export default function CustomerDetailPage() {
   if (!lead) return <Layout title="Customer Details"><Loading /></Layout>
 
   const ed = (s) => editing === s
+  // Opportunity Status + Disposition dropdowns only offer their approved
+  // lists. If this lead still carries an old value (e.g. imported "Open" or
+  // "Call Later"), add it as an extra "(old)" option so the field doesn't look
+  // blank and saving other fields leaves it untouched — the PBA can switch it
+  // to a new value anytime.
+  const withOld = (list, id, name) =>
+    id && !(list || []).some((o) => o.id === id)
+      ? [...(list || []), { id, name: `${name} (old)` }]
+      : (list || [])
+  const fuLimits = followupLimits()   // picker range for Next Follow-up Date
+  const oppOptions = withOld(lookups?.opportunity_statuses, lead.opportunity_status_id, lead.opportunity_status)
+  const dispOptions = withOld(lookups?.dispositions, lead.disposition_id, lead.disposition)
   const latestTr = lead.test_rides[0]
   const anyCompleted = lead.test_rides.some((t) => t.completed)
   const lastFu = lead.followups[0]
@@ -277,9 +337,9 @@ export default function CustomerDetailPage() {
           <EField icon={<Ico src="leadStatus/01-enquiry-stage.png" w={20} h={20} alt="flag" />} label="Enquiry Stage" editing={ed('status')}
                   options={STAGES.map((s) => ({ id: s, name: s }))}
                   display={<Badge name={lead.enquiry_stage} />} value={form.enquiry_stage} onChange={setFld('enquiry_stage')} />
-          <EField icon={<Ico src="leadStatus/02-opportunity-status.png" w={20} h={20} alt="check" />} label="Opportunity Status" editing={ed('status')} options={lookups?.opportunity_statuses}
+          <EField icon={<Ico src="leadStatus/02-opportunity-status.png" w={20} h={20} alt="check" />} label="Opportunity Status" editing={ed('status')} options={oppOptions}
                   display={<Badge name={lead.opportunity_status} />} value={form.opportunity_status_id} onChange={setFld('opportunity_status_id')} />
-          <EField icon={<Ico src="leadStatus/03-follow-up-dispositions.png" w={20} h={20} alt="phone-call" />} label="Follow Up Dispositions" editing={ed('status')} options={lookups?.dispositions}
+          <EField icon={<Ico src="leadStatus/03-follow-up-dispositions.png" w={20} h={20} alt="phone-call" />} label="Follow Up Dispositions" editing={ed('status')} options={dispOptions}
                   display={<Badge name={lead.disposition} kind="disp" />} value={form.disposition_id} onChange={setFld('disposition_id')} />
           <EField icon={<Ico src="leadStatus/04-lost-reason.png" w={20} h={20} alt="warning" />} label="Lost Reason" editing={ed('status')} options={lookups?.lost_reasons} valueClass="red"
                   display={lead.lost_reason} value={form.lost_reason_id} onChange={setFld('lost_reason_id')} />
@@ -289,6 +349,7 @@ export default function CustomerDetailPage() {
           <EField icon={<Ico src="leadStatus/07-customer-contacted.png" w={20} h={20} alt="users" />} label="Customer Contacted" editing={false} valueClass={contacted ? 'green' : ''}
                   display={contacted ? 'YES' : 'NO'} />
           <EField icon={<Ico src="leadStatus/08-next-follow-up-date-time.png" w={20} h={20} alt="calendar" />} label="Next Follow Up DateTime" editing={ed('status')} type="datetime-local"
+                  min={fuLimits.min} max={fuLimits.max}
                   display={fmtDateTime(lead.next_followup_at)} value={form.next_followup_at} onChange={setFld('next_followup_at')} />
           <EField icon={<Ico src="leadStatus/09-test-ride-status.png" w={25} h={25} alt="motorcycle" />} label="Test Ride Status" editing={false} display={latestTr?.status} />
           <EField icon={<Ico src="leadStatus/10-test-ride-completed.png" w={20} h={20} alt="check" />} label="Test Ride Completed" editing={false} display={anyCompleted ? 'YES' : '—'} />
@@ -373,7 +434,8 @@ export default function CustomerDetailPage() {
                 {lookups?.opportunity_statuses?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select></div>
             <div className="field"><label>Next Follow-up Date</label>
-              <input className="input" type="datetime-local" value={fu.next_followup_at} onChange={setFuF('next_followup_at')} /></div>
+              <input className="input" type="datetime-local" value={fu.next_followup_at} onChange={setFuF('next_followup_at')}
+                min={fuLimits.min} max={fuLimits.max} /></div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
             <button type="button" className="btn btn-primary" onClick={() => setShowQuotationForm(true)}>+ Create Quotation</button>
