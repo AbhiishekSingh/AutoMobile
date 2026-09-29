@@ -2,7 +2,12 @@ import { RadialBarChart, RadialBar, PolarAngleAxis, Tooltip, ResponsiveContainer
 
 // Two progress gauges for the selected period:
 //   Total Target Ratio       = leads that reached BOOKED/INVOICED ÷ all leads
-//   Total TD Completed Ratio = test rides completed ÷ all test rides
+//                              enquired in the period (stand-in until real
+//                              monthly targets are added)
+//   Total TD Completed Ratio = completed test rides ÷ test rides that were
+//                              DUE by today (completed + cancelled + booked
+//                              but past their date). Upcoming rides are left
+//                              out — they can't have been completed yet.
 // Percentages and the numbers behind them come from /pba/dashboard — see
 // pba_dashboard() in app/modules/leads/router.py.
 
@@ -49,7 +54,7 @@ function Gauge({ name, pct, color, detail }) {
 
 export default function RatioGaugesChart({
   targetRatio = 0, targetAchieved = 0, targetTotal = 0,
-  tdRatio = 0, tdCompleted = 0, tdTotal = 0,
+  tdRatio = 0, tdCompleted = 0, tdDue = 0,
 }) {
   return (
     <div className="card">
@@ -68,7 +73,9 @@ export default function RatioGaugesChart({
         />
         <Gauge
           name="Total TD Completed Ratio" pct={tdRatio} color="#2E9E6B"
-          detail={`${tdCompleted} of ${tdTotal} test rides completed`}
+          detail={tdDue
+            ? `${tdCompleted} of ${tdDue} test rides due so far were completed`
+            : 'No test rides due in this period yet'}
         />
       </div>
     </div>

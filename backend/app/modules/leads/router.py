@@ -14,9 +14,11 @@ from app.modules.leads.models import (BikeModel, Customer, Disposition,
 from app.modules.leads.schemas import (CustomerListResponse, FollowupCreate,
                                        FollowupListResponse, LeadCreate,
                                        LeadDetail, LeadListResponse, LeadUpdate,
-                                       Lookups, PBADashboard, TestRideCreate)
+                                       Lookups, PBADashboard, TestRideAction,
+                                       TestRideCreate)
 from app.modules.audit.service import record_changes
 from app.modules.leads.lookup_names import lookup_key
+from app.modules.leads.test_rides import create_test_ride, update_test_ride
 from app.modules.leads.service import (bucket_filter, check_followup_date,
                                        dropdown_options, is_allowed, mask_phone, scope)
 from app.modules.notifications.models import NotificationType
@@ -311,15 +313,34 @@ def add_followup(lead_id: int, body: FollowupCreate,
 
 @router.post("/leads/{lead_id}/test-rides", status_code=201,
              dependencies=[Depends(require_roles("PBA"))])
-def add_test_ride(lead_id: int, body: TestRideCreate, db: Session = Depends(get_db)):
-    if not db.get(Lead, lead_id):
+def add_test_ride(lead_id: int, body: TestRideCreate, user: AppUser = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    """Book a test ride (or record a spot ride that's happening right now).
+    Rules + automatic lead-status update: app/modules/leads/test_rides.py"""
+    lead = scope(db.query(Lead), user).filter(Lead.lead_id == lead_id).first()
+    if not lead:
         raise HTTPException(404, "Lead not found")
-    t = TestRide(lead_id=lead_id, model_id=body.model_id, color=body.color,
-                 status=TestRideStatus(body.status), scheduled_at=body.scheduled_at,
-                 slot=body.slot, preferred_location=body.preferred_location,
-                 completed=(body.status == "COMPLETED"))
-    db.add(t); db.commit(); db.refresh(t)
-    return {"test_ride_id": t.id}
+    t = create_test_ride(db, lead, status=body.status, scheduled_at=body.scheduled_at,
+                         model_id=body.model_id, color=body.color, slot=body.slot,
+                         preferred_location=body.preferred_location,
+                         actor_user_id=user.user_id)
+    db.commit(); db.refresh(t)
+    return {"test_ride_id": t.id, "status": t.status.value}
+
+
+@router.patch("/test-rides/{ride_id}", dependencies=[Depends(require_roles("PBA"))])
+def change_test_ride(ride_id: int, body: TestRideAction, user: AppUser = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """The buttons on a Test Ride History row: Mark Completed / Reschedule /
+    Cancel. Rules: app/modules/leads/test_rides.py"""
+    ride = db.get(TestRide, ride_id)
+    # the ride's lead must be one this PBA can see
+    if not ride or not scope(db.query(Lead), user).filter(Lead.lead_id == ride.lead_id).first():
+        raise HTTPException(404, "Test ride not found")
+    update_test_ride(db, ride, action=body.action, scheduled_at=body.scheduled_at,
+                     slot=body.slot, actor_user_id=user.user_id)
+    db.commit()
+    return {"ok": True, "status": ride.status.value}
 
 
 @router.get("/customers", response_model=CustomerListResponse,
@@ -421,30 +442,44 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
     today_start, today_end = period_range("today")
 
     # ── Test rides in the selected period ──────────────────────────────────
-    # A test ride belongs to the period by its scheduled date (or, if it was
-    # never given one, the date it was created).
-    tr_date = func.coalesce(TestRide.scheduled_at, TestRide.created_at)
+    # A test ride belongs to the period by its scheduled date. If it has none
+    # (most LeadSquared imports), it falls back to its LEAD'S ENQUIRY DATE —
+    # not the import date — so old test rides stay in the month they happened.
+    tr_date = func.coalesce(TestRide.scheduled_at, Lead.enquiry_at, TestRide.created_at)
+    today_start_dt = period_range("today")[0]
 
-    def test_rides(*statuses):
+    def test_rides(*statuses, upcoming=None):
         q = (db.query(func.count(TestRide.id))
              .join(Lead, TestRide.lead_id == Lead.lead_id)
              .filter(tr_date >= period_start, tr_date < period_end))
         if statuses:
             q = q.filter(TestRide.status.in_(statuses))
+        if upcoming is True:
+            q = q.filter(tr_date >= today_start_dt)
+        elif upcoming is False:
+            q = q.filter(tr_date < today_start_dt)
         return scope(q, user).scalar() or 0
 
+    open_statuses = (TestRideStatus.BOOKED, TestRideStatus.RESCHEDULED)
     tr_completed = test_rides(TestRideStatus.COMPLETED)
-    # "Scheduled" = still upcoming: booked, or booked then moved to a new slot.
-    tr_scheduled = test_rides(TestRideStatus.BOOKED, TestRideStatus.RESCHEDULED)
-    tr_total = test_rides()   # every test ride in the period, incl. cancelled
+    # Scheduled = still UPCOMING (booked/rescheduled, date today or later).
+    tr_scheduled = test_rides(*open_statuses, upcoming=True)
+    # Booked but the date has passed and nobody marked it Completed/Cancelled.
+    tr_pending_update = test_rides(*open_statuses, upcoming=False)
+    tr_cancelled = test_rides(TestRideStatus.CANCELLED)
+    tr_total = test_rides()
 
-    # TD Completed Ratio = completed ÷ all test rides in the period.
-    td_ratio = round(tr_completed * 100 / tr_total) if tr_total else 0
+    # TD Completed Ratio = completed ÷ test rides that were DUE by today
+    # (completed + cancelled + past-dated still-open). Upcoming ones are left
+    # out: they can't have been completed yet, so counting them would drag the
+    # ratio down mid-month for no reason.
+    tr_due = tr_total - tr_scheduled
+    td_ratio = round(tr_completed * 100 / tr_due) if tr_due else 0
 
-    # ── Total Target Ratio ─────────────────────────────────────────────────
+    # ── Total Target Ratio (stand-in until real targets exist) ─────────────
     # Same definition as the "Target Tracker" chart (dashboard/router.py), so
     # the two never disagree: leads that reached BOOKED or INVOICED ÷ all leads
-    # enquired in the period. (There is no separate targets table yet.)
+    # enquired in the period.
     def leads_in_period(*stages):
         q = db.query(func.count(Lead.lead_id)).filter(
             Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
@@ -473,6 +508,8 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
                         calls_today=calls_today,
                         quotations_shared=quotations_shared, test_rides_completed=tr_completed,
                         test_rides_scheduled=tr_scheduled,
-                        total_target_ratio=target_ratio, td_completed_ratio=td_ratio,
-                        target_achieved=target_achieved, target_total=target_total,
-                        test_rides_total=tr_total)
+                        test_rides_pending_update=tr_pending_update,
+                        test_rides_cancelled=tr_cancelled, test_rides_total=tr_total,
+                        test_rides_due=tr_due, td_completed_ratio=td_ratio,
+                        total_target_ratio=target_ratio,
+                        target_achieved=target_achieved, target_total=target_total)

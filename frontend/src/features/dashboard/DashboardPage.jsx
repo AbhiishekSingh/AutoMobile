@@ -263,6 +263,8 @@ export default function DashboardPage() {
             <TestRidesChart
               completed={data.test_rides_completed ?? 0}
               scheduled={data.test_rides_scheduled ?? 0}
+              notUpdated={data.test_rides_pending_update ?? 0}
+              cancelled={data.test_rides_cancelled ?? 0}
             />
             <RatioGaugesChart
               targetRatio={data.total_target_ratio ?? 0}
@@ -270,7 +272,7 @@ export default function DashboardPage() {
               targetTotal={data.target_total ?? 0}
               tdRatio={data.td_completed_ratio ?? 0}
               tdCompleted={data.test_rides_completed ?? 0}
-              tdTotal={data.test_rides_total ?? 0}
+              tdDue={data.test_rides_due ?? 0}
             />
           </div>
 

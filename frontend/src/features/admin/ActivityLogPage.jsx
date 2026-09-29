@@ -8,6 +8,7 @@ const ENTITY_TYPES = [
   { value: 'customer', label: 'Customer' },
   { value: 'lead', label: 'Lead' },
   { value: 'user', label: 'User' },
+  { value: 'test_ride', label: 'Test ride' },
 ]
 
 // "full_name" -> "Full Name"

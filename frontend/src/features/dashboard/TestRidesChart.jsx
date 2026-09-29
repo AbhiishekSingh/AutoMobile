@@ -2,9 +2,14 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LabelList, ResponsiveContainer, Cell,
 } from 'recharts'
 
-// Test rides in the selected period: Completed vs Scheduled (booked/rescheduled,
-// still upcoming). Counts come from /pba/dashboard — see pba_dashboard() in
-// app/modules/leads/router.py for exactly what's counted.
+// Test rides in the selected period (by scheduled date, else the lead's
+// enquiry date):
+//   Completed   = marked Completed
+//   Scheduled   = booked/rescheduled and still UPCOMING (date today or later)
+//   Not updated = booked but the date has passed and nobody marked it
+//                 Completed or Cancelled — shown as a note so it gets fixed
+// Counts come from /pba/dashboard — see pba_dashboard() in
+// app/modules/leads/router.py.
 const COLORS = {
   completed: '#2E9E6B',
   scheduled: '#2563EB',
@@ -38,12 +43,12 @@ function EmptyState() {
   )
 }
 
-export default function TestRidesChart({ completed = 0, scheduled = 0 }) {
+export default function TestRidesChart({ completed = 0, scheduled = 0, notUpdated = 0, cancelled = 0 }) {
   const rows = [
     { key: 'completed', name: 'Test Ride Completed', short: 'Completed', count: completed },
-    { key: 'scheduled', name: 'Test Ride Scheduled', short: 'Scheduled', count: scheduled },
+    { key: 'scheduled', name: 'Test Ride Scheduled', short: 'Scheduled (upcoming)', count: scheduled },
   ]
-  const isEmpty = completed + scheduled === 0
+  const isEmpty = completed + scheduled + notUpdated + cancelled === 0
 
   return (
     <div className="card">
@@ -83,6 +88,16 @@ export default function TestRidesChart({ completed = 0, scheduled = 0 }) {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            {(notUpdated > 0 || cancelled > 0) && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#6B7F96', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                {notUpdated > 0 && (
+                  <span title="Booked test rides whose date has passed but were never marked Completed or Cancelled">
+                    ⚠️ <b style={{ color: '#1B2A3A' }}>{notUpdated}</b> past booking{notUpdated === 1 ? '' : 's'} not updated
+                  </span>
+                )}
+                {cancelled > 0 && <span><b style={{ color: '#1B2A3A' }}>{cancelled}</b> cancelled</span>}
+              </div>
+            )}
           </>
         )}
       </div>

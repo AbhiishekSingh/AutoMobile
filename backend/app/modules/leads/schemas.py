@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -163,6 +163,13 @@ class TestRideCreate(BaseModel):
     preferred_location: Optional[str] = None
 
 
+class TestRideAction(BaseModel):
+    """A button on a Test Ride History row."""
+    action: Literal["complete", "reschedule", "cancel"]
+    scheduled_at: Optional[datetime] = None   # reschedule: the new date & time
+    slot: Optional[str] = None                # reschedule: optional new slot
+
+
 class CustomerRow(BaseModel):
     """One row in the Customers list."""
     customer_id: int
@@ -215,9 +222,13 @@ class PBADashboard(BaseModel):
     quotations_shared: int
     test_rides_completed: int
     test_rides_scheduled: int
-    total_target_ratio: int          # % of leads in the period that reached BOOKED/INVOICED
-    td_completed_ratio: int          # % of test rides in the period that were completed
-    # the numbers behind the two ratios (shown in the chart tooltips)
+    td_completed_ratio: int          # completed ÷ test rides due by today, %
+    test_rides_pending_update: int = 0   # booked, date passed, not marked done
+    test_rides_cancelled: int = 0
+    test_rides_total: int = 0
+    test_rides_due: int = 0          # the TD ratio's denominator
+    # Total Target Ratio (stand-in): % of leads enquired in the period that
+    # reached BOOKED/INVOICED, and the numbers behind it
+    total_target_ratio: int = 0
     target_achieved: int = 0
     target_total: int = 0
-    test_rides_total: int = 0

@@ -87,6 +87,31 @@ def _stage(v):
     return _STAGE_MAP.get(_clean(v).lower(), EnquiryStage.OPEN)
 
 
+# LeadSquared "Test Ride Status" text -> our status. Anything not listed
+# (usually blank) with "Test Ride Booked = Yes" stays BOOKED.
+_TR_CANCELLED_WORDS = ("incomplete", "invalid", "cancel", "not done", "no show", "noshow")
+
+
+def test_ride_status_from_row(row) -> TestRideStatus:
+    """Map one export row's test-ride columns to a TestRideStatus.
+
+      Test Ride Completed = Yes, or status "Completed"  -> COMPLETED
+      status "Incomplete" / "Invalid" / "Cancelled" ...  -> CANCELLED
+      status mentions "Reschedul"                        -> RESCHEDULED
+      anything else (e.g. blank + Test Ride Booked=Yes)  -> BOOKED
+    Previously everything that wasn't completed became BOOKED, which made
+    "Incomplete"/"Invalid" rides look like upcoming ones on the dashboard.
+    """
+    text = _clean(row.get("Test Ride Status")).lower()
+    if _yes(row.get("Test Ride Completed")) or text == "completed":
+        return TestRideStatus.COMPLETED
+    if any(w in text for w in _TR_CANCELLED_WORDS):
+        return TestRideStatus.CANCELLED
+    if "reschedul" in text:
+        return TestRideStatus.RESCHEDULED
+    return TestRideStatus.BOOKED
+
+
 def _get_or_create(db, Model, name, cache, active=True):
     """Find a lookup row by name, creating it only if nothing equivalent exists.
 
@@ -352,10 +377,11 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
             tr_completed = _yes(row.get("Test Ride Completed"))
             tr_booked = _yes(row.get("Test Ride Booked"))
             if tr_status or tr_completed or tr_booked:
-                status = TestRideStatus.COMPLETED if tr_completed else TestRideStatus.BOOKED
+                status = test_ride_status_from_row(row)
                 db.add(TestRide(
                     lead_id=lead.lead_id, model_id=model.id if model else None,
-                    color=_clean(row.get("Color")), status=status, completed=tr_completed,
+                    color=_clean(row.get("Color")), status=status,
+                    completed=(status == TestRideStatus.COMPLETED),
                     scheduled_at=_parse_dt(row.get("Test Ride Booking (Scheduled) Date")),
                     slot=_clean(row.get("Test Ride Slot")),
                     preferred_location=_clean(row.get("Test Ride preferred location")),

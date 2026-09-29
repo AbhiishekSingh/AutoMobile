@@ -155,6 +155,9 @@ export default function CustomerDetailPage() {
 
   const [fu, setFu] = useState(EMPTY_FU)
   const [tr, setTr] = useState(EMPTY_TR)
+  const [trMsg, setTrMsg] = useState('')            // messages for the Test Ride card
+  const [resched, setResched] = useState(null)      // { id, scheduled_at, slot } while rescheduling a row
+  const [trBusy, setTrBusy] = useState(null)        // id of the row whose button is working
   const [showQuotationForm, setShowQuotationForm] = useState(false)
   const [quotations, setQuotations] = useState(null)
 
@@ -244,16 +247,53 @@ export default function CustomerDetailPage() {
       setFu(EMPTY_FU); setMsg('Follow-up added.'); load()
     } catch (e2) { setMsg(e2.response?.data?.detail || 'Could not add follow-up.') }
   }
+  // ---- Test rides — rules live in app/modules/leads/test_rides.py ----
+  //  New ride: BOOKED (date/time from now on) or COMPLETED only for a spot
+  //  ride happening right now. Booked rows get Mark Completed (not before
+  //  their time) / Reschedule / Cancel. The lead's Opportunity Status is
+  //  updated by the server (TEST RIDE BOOKED / TEST RIDE COMPLETED).
   async function addTestRide(e) {
-    e.preventDefault(); setMsg('')
+    e.preventDefault(); setTrMsg('')
+    const spot = tr.status === 'COMPLETED'
+    if (!spot && !tr.scheduled_at) { setTrMsg('Please choose the date & time of the test ride.'); return }
+    if (!spot && tr.scheduled_at < istInputAt(Date.now() - 5 * 60 * 1000)) {
+      setTrMsg("A test ride can't be booked in the past — pick a time from now onwards."); return
+    }
     try {
       await api.post(`/leads/${id}/test-rides`, {
         model_id: tr.model_id ? Number(tr.model_id) : null, color: tr.color || null, status: tr.status,
-        scheduled_at: tr.scheduled_at || null, slot: tr.slot || null, preferred_location: tr.preferred_location || null,
+        scheduled_at: spot ? null : tr.scheduled_at,   // spot ride = now (set by the server)
+        slot: tr.slot || null, preferred_location: tr.preferred_location || null,
       })
-      setTr(EMPTY_TR); setMsg('Test ride saved.'); load()
-    } catch (e2) { setMsg(e2.response?.data?.detail || 'Could not save test ride.') }
+      setTr(EMPTY_TR)
+      setTrMsg(spot ? 'Spot test ride recorded as completed.' : 'Test ride booked.')
+      load()
+    } catch (e2) { setTrMsg(e2.response?.data?.detail || 'Could not save test ride.') }
   }
+
+  async function rideAction(ride, action, extra = {}) {
+    if (action === 'cancel' && !window.confirm('Cancel this test ride?')) return
+    setTrMsg(''); setTrBusy(ride.id)
+    try {
+      await api.patch(`/test-rides/${ride.id}`, { action, ...extra })
+      setResched(null)
+      setTrMsg({ complete: 'Test ride marked completed.', reschedule: 'Test ride rescheduled.',
+                 cancel: 'Test ride cancelled.' }[action])
+      load()
+    } catch (e2) { setTrMsg(e2.response?.data?.detail || 'Could not update the test ride.') }
+    finally { setTrBusy(null) }
+  }
+
+  function saveReschedule() {
+    if (!resched?.scheduled_at) { setTrMsg('Please choose the new date & time.'); return }
+    if (resched.scheduled_at < istInputAt(Date.now() - 5 * 60 * 1000)) { setTrMsg("The new time can't be in the past."); return }
+    const ride = lead.test_rides.find((t) => t.id === resched.id)
+    rideAction(ride, 'reschedule', { scheduled_at: resched.scheduled_at, slot: resched.slot })
+  }
+
+  // A booked ride can be marked completed from 15 minutes before its time
+  // (same grace as the server).
+  const canComplete = (t) => !t.scheduled_at || toInput(t.scheduled_at) <= istInputAt(Date.now() + 15 * 60 * 1000)
 
   if (err) return <Layout title="Customer Details"><div className="card"><div className="card-pad">{err}</div></div></Layout>
   if (!lead) return <Layout title="Customer Details"><Loading /></Layout>
@@ -452,17 +492,54 @@ export default function CustomerDetailPage() {
         <div className="card-header"><h3>Test Ride History <span className="muted-note">({lead.test_rides.length})</span></h3></div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>Model</th><th>Colour</th><th>Status</th><th>Scheduled</th><th>Slot</th><th>Location</th><th>Completed</th></tr></thead>
+            <thead><tr><th>Model</th><th>Colour</th><th>Status</th><th>Scheduled</th><th>Slot</th><th>Location</th><th>Completed</th><th>Actions</th></tr></thead>
             <tbody>
-              {lead.test_rides.map((t) => (
-                <tr key={t.id}>
-                  <td className="cell-primary">{t.model_name || '—'}</td>
-                  <td>{t.color || '—'}</td><td>{t.status}</td>
-                  <td>{fmtDateTime(t.scheduled_at)}</td><td>{t.slot || '—'}</td>
-                  {/* <td>{t.preferred_location || '—'}</td><td>{t.completed ? <Ico src="check.svg" w={16} h={16} alt="completed" /> : '—'}</td> */}
-                  <td>{t.preferred_location || '—'}</td><td>{t.completed ? '✅' : '—'}</td>
-                </tr>
-              ))}
+              {lead.test_rides.map((t) => {
+                const open = t.status === 'BOOKED' || t.status === 'RESCHEDULED'
+                const busy = trBusy === t.id
+                const editingThis = resched?.id === t.id
+                return (
+                  <tr key={t.id}>
+                    <td className="cell-primary">{t.model_name || '—'}</td>
+                    <td>{t.color || '—'}</td>
+                    <td><span className={'badge ' + ({ COMPLETED: 'badge-green', BOOKED: 'badge-sky', RESCHEDULED: 'badge-amber', CANCELLED: 'badge-gray' }[t.status] || 'badge-gray')}>{t.status}</span></td>
+                    <td>
+                      {editingThis ? (
+                        <input className="input" type="datetime-local" style={{ width: 175 }}
+                               min={istInputAt(Date.now())} value={resched.scheduled_at}
+                               onChange={(e) => setResched({ ...resched, scheduled_at: e.target.value })} />
+                      ) : fmtDateTime(t.scheduled_at)}
+                    </td>
+                    <td>
+                      {editingThis ? (
+                        <input className="input" style={{ width: 100 }} placeholder="Slot" value={resched.slot}
+                               onChange={(e) => setResched({ ...resched, slot: e.target.value })} />
+                      ) : (t.slot || '—')}
+                    </td>
+                    <td>{t.preferred_location || '—'}</td>
+                    <td>{t.completed ? '✅' : '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {!open ? <span style={{ color: '#94A3B8' }}>—</span> : editingThis ? (
+                        <>
+                          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={saveReschedule}>Save</button>{' '}
+                          <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => setResched(null)}>Back</button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" className="btn btn-primary btn-sm" disabled={busy || !canComplete(t)}
+                                  title={canComplete(t) ? 'Customer has taken the test ride'
+                                    : `Scheduled for ${fmtDateTime(t.scheduled_at)} — can be marked completed once it has happened`}
+                                  onClick={() => rideAction(t, 'complete')}>Mark Completed</button>{' '}
+                          <button type="button" className="btn btn-outline btn-sm" disabled={busy}
+                                  onClick={() => { setTrMsg(''); setResched({ id: t.id, scheduled_at: '', slot: t.slot || '' }) }}>Reschedule</button>{' '}
+                          <button type="button" className="btn btn-outline btn-sm" disabled={busy}
+                                  onClick={() => rideAction(t, 'cancel')}>Cancel</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
           {lead.test_rides.length === 0 && <Empty>No test rides yet.</Empty>}
@@ -477,17 +554,30 @@ export default function CustomerDetailPage() {
             <div className="field"><label>Colour</label><input className="input" value={tr.color} onChange={setTrF('color')} /></div>
             <div className="field"><label>Status</label>
               <select className="input" value={tr.status} onChange={setTrF('status')}>
-                <option>BOOKED</option><option>COMPLETED</option><option>RESCHEDULED</option><option>CANCELLED</option>
+                <option value="BOOKED">BOOKED</option>
+                <option value="COMPLETED">COMPLETED — spot ride (riding now)</option>
               </select></div>
             <div className="field"><label>Scheduled at</label>
-              <input className="input" type="datetime-local" value={tr.scheduled_at} onChange={setTrF('scheduled_at')} /></div>
+              {tr.status === 'COMPLETED' ? (
+                <div className="input" style={{ background: 'var(--mist)', color: 'var(--muted)' }}>Now (recorded automatically)</div>
+              ) : (
+                <input className="input" type="datetime-local" required min={istInputAt(Date.now())}
+                       value={tr.scheduled_at} onChange={setTrF('scheduled_at')} />
+              )}</div>
             <div className="field"><label>Slot</label><input className="input" value={tr.slot} onChange={setTrF('slot')} placeholder="Morning / Evening" /></div>
             <div className="field"><label>Location</label>
               <select className="input" value={tr.preferred_location} onChange={setTrF('preferred_location')}>
                 <option>Showroom</option><option>Home Test Ride</option><option>Office TD</option>
               </select></div>
           </div>
-          <button className="btn btn-primary">Save test ride</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <button className="btn btn-primary">{tr.status === 'COMPLETED' ? 'Record spot ride' : 'Book test ride'}</button>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Book rides for a future time. Use “Completed — spot ride” only when the customer is riding right now;
+              otherwise mark the booked ride completed from its row once it has happened.
+            </span>
+          </div>
+          {trMsg && <div className="hint" style={{ marginTop: 12 }}>{trMsg}</div>}
         </form>
       </div>
 
