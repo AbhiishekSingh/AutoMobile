@@ -135,7 +135,7 @@ const EMPTY_TR = { model_id: '', color: '', status: 'BOOKED', scheduled_at: '', 
 
 const STAGES = ['OPEN', 'CLOSED', 'BOOKED', 'INVOICED']
 const SECTION_FIELDS = {
-  enquiry: ['enquiry_at', 'first_contact_at', 'dealer_code', 'salesperson_email', 'mode_id'],
+  enquiry: ['enquiry_at', 'first_contact_at', 'dealer_code', 'branch_code', 'salesperson_email', 'mode_id'],
   vehicle: ['full_name', 'phone', 'pincode', 'model_id', 'color', 'sku_code'],
   status: ['enquiry_stage', 'opportunity_status_id', 'disposition_id', 'lost_reason_id', 'next_followup_at', 'ageing_days'],
 }
@@ -196,7 +196,8 @@ export default function CustomerDetailPage() {
     if (!lead) return
     setForm({
       enquiry_at: toInput(lead.enquiry_date), first_contact_at: toInput(lead.first_contact_at),
-      dealer_code: lead.dealer_code || '', salesperson_email: lead.salesperson_email || '',
+      dealer_code: lead.dealer_code || '', branch_code: lead.branch_code || '',
+      salesperson_email: lead.salesperson_email || '',
       mode_id: lead.mode_id || '',
       full_name: lead.customer_name || '', phone: lead.mobile || '', pincode: lead.pincode || '',
       model_id: lead.model_id || '', color: lead.color || '', sku_code: lead.sku_code || '',
@@ -340,7 +341,8 @@ export default function CustomerDetailPage() {
                   display={lead.salesperson_email} value={form.salesperson_email} onChange={setFld('salesperson_email')} />
           <EField icon={<Ico src="enquiry/05-enquiry-dealer-code.png" w={18} h={18} alt="document" />} label="Enquiry Dealer Code" editing={ed('enquiry')}
                   display={lead.dealer_code} value={form.dealer_code} onChange={setFld('dealer_code')} />
-          <EField icon={<Ico src="enquiry/06-enquiry-branch-code.png" w={22} h={19} alt="document" />} label="Enquiry Branch Code" editing={false} display={lead.dealer_code} />
+          <EField icon={<Ico src="enquiry/06-enquiry-branch-code.png" w={22} h={19} alt="document" />} label="Enquiry Branch Code" editing={ed('enquiry')}
+                  display={lead.branch_code} value={form.branch_code} onChange={setFld('branch_code')} />
           <EField icon={<Ico src="enquiry/07-followup-enquiry-mode.png" w={16} h={16} alt="refresh" />} label="Followup Enquiry Mode" editing={ed('enquiry')} options={lookups?.enquiry_modes}
                   display={lead.followup_enquiry_mode} value={form.mode_id} onChange={setFld('mode_id')} />
           <EField icon={<Ico src="enquiry/08-enquiry-branch-name.png" w={18} h={19} alt="building" />} label="Enquiry Branch Name" editing={false} display={lead.branch_name} />

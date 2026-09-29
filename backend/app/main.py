@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, engine
+from app.db.schema_updates import apply_schema_updates
 from app.db import base  # noqa: F401  (registers all models)
 from app.modules.auth.router import router as auth_router
 from app.modules.users.router import router as users_router
@@ -39,6 +40,14 @@ def sync_lookups_on_startup():
     """Keep the Opportunity Status and Follow-up Disposition dropdowns in line
     with their fixed lists (app/modules/leads/service.py) on every start —
     creates missing values, switches the rest off. No manual step needed."""
+    # 1. add any new database columns (e.g. lead.branch_code) — must run
+    #    before anything reads the lead table
+    try:
+        apply_schema_updates(engine)
+    except Exception as e:
+        print(f"[startup] WARNING: database column update failed: {e}")
+
+    # 2. fixed dropdown lists
     db = SessionLocal()
     try:
         for table, (active, off) in sync_dropdown_lists(db).items():

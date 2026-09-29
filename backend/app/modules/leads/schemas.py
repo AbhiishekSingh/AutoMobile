@@ -74,6 +74,7 @@ class LeadDetail(BaseModel):
     enquiry_date: Optional[datetime]
     enquiry_time: Optional[str]
     dealer_code: Optional[str]
+    branch_code: Optional[str] = None
     branch_name: Optional[str]
     salesperson_name: Optional[str]
     salesperson_email: Optional[str]
@@ -115,6 +116,7 @@ class LeadUpdate(BaseModel):
     enquiry_at: Optional[datetime] = None
     first_contact_at: Optional[datetime] = None
     dealer_code: Optional[str] = None
+    branch_code: Optional[str] = None
     salesperson_email: Optional[str] = None
     mode_id: Optional[int] = None
     model_id: Optional[int] = None

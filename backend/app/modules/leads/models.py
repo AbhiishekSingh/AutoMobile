@@ -115,7 +115,8 @@ class Lead(Base):
     next_followup_at = Column(DateTime)
     ageing_days = Column(Integer, default=0)
     salesperson_email = Column(String)
-    dealer_code = Column(String)
+    dealer_code = Column(String)     # dealership code, same for every branch (e.g. 12746)
+    branch_code = Column(String)     # showroom code, per branch (e.g. C12746, A12746)
     created_at = Column(DateTime, default=now_ist)
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)
 

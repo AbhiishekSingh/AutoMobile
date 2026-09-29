@@ -363,6 +363,7 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
                 first_contact_at=first_contact, next_followup_at=next_fu,
                 ageing_days=_int(row.get("Ageing Days")),
                 dealer_code=_clean(row.get("Enquiry Dealer Code")),
+                branch_code=_clean(row.get("Enquiry Branch Code")) or None,
                 salesperson_email=sp_email or None,
             )
             db.add(lead)

@@ -126,7 +126,8 @@ def lead_detail(lead_id: int, db: Session = Depends(get_db)):
     return LeadDetail(
         lead_id=l.lead_id, enquiry_no=l.enquiry_no, enquiry_date=l.enquiry_at,
         enquiry_time=l.enquiry_at.strftime("%H:%M") if l.enquiry_at else None,
-        dealer_code=l.dealer_code, branch_name=branch.name if branch else None,
+        dealer_code=l.dealer_code, branch_code=l.branch_code,
+        branch_name=branch.name if branch else None,
         salesperson_name=sp.full_name if sp else None, salesperson_email=l.salesperson_email,
         first_contact_at=l.first_contact_at, within_3hrs=within3,
         followup_enquiry_mode=l.mode.name if l.mode else None,
@@ -164,7 +165,9 @@ def create_lead(body: LeadCreate, user: AppUser = Depends(get_current_user),
                 branch_id=user.branch_id, assigned_user_id=user.user_id, mode_id=body.mode_id,
                 model_id=body.model_id, color=body.color, lead_type=LeadType(body.lead_type),
                 source=LeadSource(body.source), enquiry_at=now_ist(),
-                sla_flag=SLAFlag.YELLOW, salesperson_email=user.email)
+                sla_flag=SLAFlag.YELLOW, salesperson_email=user.email,
+                # the PBA's showroom code (the branch table's code column)
+                branch_code=user.branch.dealer_code if user.branch else None)
     # No notification here: assigned_user_id is always the creating PBA
     # themselves (self-assigned), and we intentionally never notify a user
     # about their own action.
@@ -174,7 +177,7 @@ def create_lead(body: LeadCreate, user: AppUser = Depends(get_current_user),
 
 EDIT_ROLES = ("PBA", "OWNER", "GM", "ADMIN")
 CUSTOMER_FIELDS = ("full_name", "phone", "pincode", "city", "alt_phone")
-LEAD_FIELDS = ("enquiry_at", "first_contact_at", "dealer_code", "salesperson_email",
+LEAD_FIELDS = ("enquiry_at", "first_contact_at", "dealer_code", "branch_code", "salesperson_email",
                "mode_id", "model_id", "color", "sku_code", "opportunity_status_id",
                "lost_reason_id", "next_followup_at", "ageing_days")
 
