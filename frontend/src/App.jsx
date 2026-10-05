@@ -3,6 +3,7 @@ import { Suspense, lazy } from 'react'
 import { AuthProvider, useAuth, ROLE_HOME } from './lib/auth'
 import ProtectedRoute from './components/ProtectedRoute'
 import { Loading } from './components/ui'
+import { SALES_ROLES } from './lib/roles'
 import LoginPage from './features/auth/LoginPage'
 import RoleHome from './features/home/RoleHome'
 import UsersPage from './features/admin/UsersPage'
@@ -26,8 +27,8 @@ function Index() {
   return <Navigate to={ROLE_HOME[user.role] || '/dashboard'} replace />
 }
 
-// PBA-only wrapper to keep the route list tidy
-const Pba = ({ children }) => <ProtectedRoute roles={['PBA']}>{children}</ProtectedRoute>
+// Sales screens (PBA + CRE share them) — keeps the route list tidy
+const Sales = ({ children }) => <ProtectedRoute roles={SALES_ROLES}>{children}</ProtectedRoute>
 
 export default function App() {
   return (
@@ -37,19 +38,18 @@ export default function App() {
           <Route path="/" element={<Index />} />
           <Route path="/login" element={<LoginPage />} />
 
-          {/* PBA module (Phase 2) */}
-          <Route path="/dashboard" element={<Pba><Suspense fallback={<Loading />}><DashboardPage /></Suspense></Pba>} />
-          <Route path="/leads" element={<Pba><LeadsPage /></Pba>} />
-          <Route path="/leads/:id" element={<Pba><CustomerDetailPage /></Pba>} />
-          <Route path="/customers" element={<Pba><CustomersPage /></Pba>} />
-          <Route path="/followups" element={<Pba><FollowupsPage /></Pba>} />
-          <Route path="/quotations" element={<Pba><QuotationsPage /></Pba>} />
-          <Route path="/quotations/:id" element={<Pba><QuotationDetailPage /></Pba>} />
+          {/* Sales module — PBA and CRE (CRE sees its 1-2 branches, with a branch filter) */}
+          <Route path="/dashboard" element={<Sales><Suspense fallback={<Loading />}><DashboardPage /></Suspense></Sales>} />
+          <Route path="/leads" element={<Sales><LeadsPage /></Sales>} />
+          <Route path="/leads/:id" element={<Sales><CustomerDetailPage /></Sales>} />
+          <Route path="/customers" element={<Sales><CustomersPage /></Sales>} />
+          <Route path="/followups" element={<Sales><FollowupsPage /></Sales>} />
+          <Route path="/quotations" element={<Sales><QuotationsPage /></Sales>} />
+          <Route path="/quotations/:id" element={<Sales><QuotationDetailPage /></Sales>} />
 
           {/* other roles — placeholder homes for now */}
           <Route path="/owner" element={<ProtectedRoute roles={['OWNER']}><RoleHome title="Owner Dashboard" /></ProtectedRoute>} />
           <Route path="/gm" element={<ProtectedRoute roles={['GM']}><RoleHome title="GM Dashboard" /></ProtectedRoute>} />
-          <Route path="/cre" element={<ProtectedRoute roles={['CRE']}><RoleHome title="CRE Dashboard" /></ProtectedRoute>} />
           <Route path="/rto" element={<ProtectedRoute roles={['RTO']}><RoleHome title="RTO Dashboard" /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute roles={['ADMIN']}><UsersPage /></ProtectedRoute>} />
           <Route path="/admin/import" element={<ProtectedRoute roles={['ADMIN']}><ImportPage /></ProtectedRoute>} />
@@ -60,4 +60,4 @@ export default function App() {
       </BrowserRouter>
     </AuthProvider>
   )
-}
+}

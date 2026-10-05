@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Layout from '../../components/Layout'
 import { Loading } from '../../components/ui'
 import api from '../../lib/api'
+import BranchFilter, { useBranchFilter } from '../../components/BranchFilter'
 import TargetTrackerChart from './TargetTrackerChart'
 import TotalSalesChart from './TotalSalesChart'
 import SlaComplianceChart from './SlaComplianceChart'
@@ -114,25 +115,30 @@ export default function DashboardPage() {
   const [chartData, setChartData] = useState(undefined)
   const [period,    setPeriod]    = useState('today')
   const [err,       setErr]       = useState('')
+  // CRE: one branch at a time (no "all" option) — switch with the dropdown.
+  // PBA: no dropdown, no branch param; numbers are their own as before.
+  const branch = useBranchFilter({ allowAll: false })
 
   useEffect(() => {
+    if (!branch.ready) return
     setErr('')
     setData(null)
-    api.get('/pba/dashboard', { params: { period } })
+    api.get('/pba/dashboard', { params: { period, ...branch.params } })
       .then((r) => setData(r.data))
       .catch(() => setErr('Could not load dashboard.'))
-  }, [period])
+  }, [period, branch.ready, branch.branchId])
 
   useEffect(() => {
+    if (!branch.ready) return
     // ✅ FIX: reset to undefined on period change so charts don't flash skeleton
     setChartData(undefined)
-    api.get('/dashboard/charts', { params: { period } })
+    api.get('/dashboard/charts', { params: { period, ...branch.params } })
       .then((r) => setChartData(r.data))
       .catch(() => {
         // endpoint missing or error — set to null to trigger skeleton
         setChartData(null)
       })
-  }, [period])
+  }, [period, branch.ready, branch.branchId])
 
   // ✅ FIX: derive safe props ONLY when chartData has actually resolved
   //    undefined = still loading  → pass nothing (charts show loading spinner)
@@ -163,8 +169,12 @@ export default function DashboardPage() {
                             : chartData.quotation_funnel ?? []
 
   return (
-    <Layout title="PBA Dashboard" sub="Trends & activity at a glance">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+    <Layout title={branch.show ? 'CRE Dashboard' : 'PBA Dashboard'}
+            sub={branch.show
+              ? (branch.branchName ? `${branch.branchName} · trends & activity` : 'Trends & activity at a glance')
+              : 'Trends & activity at a glance'}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 16 }}>
+        <BranchFilter branch={branch} />
         <select className="input" style={{ maxWidth: 180 }} value={period}
                 onChange={(e) => setPeriod(e.target.value)}>
           {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
@@ -359,4 +369,4 @@ export default function DashboardPage() {
       )}
     </Layout>
   )
-}
+}

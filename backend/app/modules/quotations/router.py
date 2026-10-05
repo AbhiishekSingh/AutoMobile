@@ -30,11 +30,12 @@ from app.modules.quotations.service import (default_valid_until,
                                             mark_lead_quoted,
                                             next_quotation_no, scope,
                                             seed_defaults)
+from app.modules.users.access import MANAGER_ROLES, SALES_ROLES, get_visible_lead
 from app.modules.users.models import AppUser
 
 router = APIRouter(tags=["quotations"])
-READ_ROLES = ("PBA", "OWNER", "GM", "ADMIN")
-WRITE_ROLES = ("PBA",)
+READ_ROLES = SALES_ROLES + MANAGER_ROLES
+WRITE_ROLES = SALES_ROLES          # PBA and CRE create/edit quotations
 
 
 def _get_or_404(db: Session, quotation_id: int, user: AppUser) -> Quotation:
@@ -50,13 +51,13 @@ def _get_or_404(db: Session, quotation_id: int, user: AppUser) -> Quotation:
 def create_quotation(lead_id: int, body: QuotationCreate,
                      user: AppUser = Depends(get_current_user),
                      db: Session = Depends(get_db)):
-    lead = db.query(Lead).filter(Lead.lead_id == lead_id).first()
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    lead = get_visible_lead(db, user, lead_id)
 
     quotation = Quotation(
         quotation_no=next_quotation_no(db), lead_id=lead.lead_id,
-        customer_id=lead.customer_id, branch_id=user.branch_id,
+        # the LEAD's branch, not the creator's: a CRE covers two branches, and
+        # the PDF / per-branch WhatsApp number must match the lead's showroom
+        customer_id=lead.customer_id, branch_id=lead.branch_id,
         created_by_user_id=user.user_id, customer_name=body.customer_name,
         contact_no=body.contact_no, email=body.email, model_id=body.model_id,
         color=body.color, on_road_price=body.on_road_price,
@@ -77,6 +78,7 @@ def create_quotation(lead_id: int, body: QuotationCreate,
            dependencies=[Depends(require_roles(*READ_ROLES))])
 def list_lead_quotations(lead_id: int, user: AppUser = Depends(get_current_user),
                          db: Session = Depends(get_db)):
+    get_visible_lead(db, user, lead_id)
     return scope(db.query(Quotation), user).filter(
         Quotation.lead_id == lead_id).order_by(Quotation.created_at.desc()).all()
 
@@ -260,4 +262,4 @@ def update_status(quotation_id: int, body: QuotationStatusUpdate,
     quotation = _get_or_404(db, quotation_id, user)
     quotation.status = body.status
     db.commit(); db.refresh(quotation)
-    return quotation
+    return quotation

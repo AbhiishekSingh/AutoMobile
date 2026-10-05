@@ -10,15 +10,17 @@ from app.modules.leads.models import (BikeModel, EnquiryStage, Lead,
 from app.modules.quotations.models import Quotation, QuotationStatus
 from app.modules.users.models import AppUser, Role
 from app.modules.leads.service import scope
+from app.modules.users.access import MANAGER_ROLES, SALES_ROLES, dashboard_branch
 
 router = APIRouter(tags=["dashboard"])
 
-READ_ROLES = ("PBA", "SALES_MANAGER", "GM", "OWNER", "ADMIN")
+READ_ROLES = SALES_ROLES + MANAGER_ROLES
 
 
 @router.get("/dashboard/charts", dependencies=[Depends(require_roles(*READ_ROLES))])
 def charts(
     period: str = Query("today", enum=["today", "week", "month", "year"]),
+    branch_id: int | None = None,
     user: AppUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -37,6 +39,8 @@ def charts(
     for the exact calendar boundaries used.
     """
     period_start, period_end = period_range(period)
+    # CRE: one branch at a time (defaults to their first) — same rule as /pba/dashboard
+    branch_id = dashboard_branch(user, branch_id)
 
     # ── 1. Target Tracker (model-wise) ──────────────────────────────────────
     # "Achieved" = BOOKED or INVOICED stage
@@ -53,7 +57,7 @@ def charts(
         .filter((Lead.lead_id.is_(None)) |
                 ((Lead.enquiry_at >= period_start) & (Lead.enquiry_at < period_end)))
     )
-    base_q = scope(base_q, user).group_by(BikeModel.name)
+    base_q = scope(base_q, user, branch_id).group_by(BikeModel.name)
 
     # Total leads per model (target)
     target_rows = {name: cnt for name, cnt in base_q.all()}
@@ -67,7 +71,7 @@ def charts(
     )
     achieved_rows = {
         name: cnt
-        for name, cnt in scope(achieved_q, user).group_by(BikeModel.name).all()
+        for name, cnt in scope(achieved_q, user, branch_id).group_by(BikeModel.name).all()
     }
 
     # Only include models that have at least one lead in the period
@@ -100,7 +104,7 @@ def charts(
     }
 
     stage_counts = dict(
-        scope(db.query(Lead.enquiry_stage, func.count(Lead.lead_id)), user)
+        scope(db.query(Lead.enquiry_stage, func.count(Lead.lead_id)), user, branch_id)
         .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
         .group_by(Lead.enquiry_stage)
         .all()
@@ -113,7 +117,7 @@ def charts(
     # ── 3. SLA Compliance (follow-up responsiveness) ────────────────────────
     # GREEN  = contacted <= 3h, YELLOW = pending 3-24h, RED = overdue > 24h
     sla_counts = dict(
-        scope(db.query(Lead.sla_flag, func.count(Lead.lead_id)), user)
+        scope(db.query(Lead.sla_flag, func.count(Lead.lead_id)), user, branch_id)
         .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
         .group_by(Lead.sla_flag)
         .all()
@@ -126,7 +130,7 @@ def charts(
 
     # ── 4. Lead Source Split (CSV import vs Walk-in) ─────────────────────────
     source_counts = dict(
-        scope(db.query(Lead.source, func.count(Lead.lead_id)), user)
+        scope(db.query(Lead.source, func.count(Lead.lead_id)), user, branch_id)
         .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
         .group_by(Lead.source)
         .all()
@@ -152,7 +156,7 @@ def charts(
         .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
     )
     lost_rows = (
-        scope(lost_q, user)
+        scope(lost_q, user, branch_id)
         .group_by(LostReason.name)
         .order_by(func.count(Lead.lead_id).desc())
         .limit(8)
@@ -161,12 +165,14 @@ def charts(
     lost_reasons = [{"reason": name, "count": cnt} for name, cnt in lost_rows]
 
     # ── 6. Quotation Funnel (DRAFT → SHARED → ACCEPTED / EXPIRED / REJECTED) ─
+    # Counted on the quotation's LEAD, so it follows the same visibility rule
+    # as everything else (PBA: their leads; CRE: the chosen branch).
     quot_q = (
         db.query(Quotation.status, func.count(Quotation.quotation_id))
+        .join(Lead, Quotation.lead_id == Lead.lead_id)
         .filter(Quotation.created_at >= period_start, Quotation.created_at < period_end)
     )
-    if user.role == Role.PBA and user.branch_id:
-        quot_q = quot_q.filter(Quotation.branch_id == user.branch_id)
+    quot_q = scope(quot_q, user, branch_id)
     quot_counts = dict(quot_q.group_by(Quotation.status).all())
     quotation_funnel = [
         {"status": s.value, "count": quot_counts.get(s, 0)}
@@ -180,4 +186,4 @@ def charts(
         "lead_source": lead_source,
         "lost_reasons": lost_reasons,
         "quotation_funnel": quotation_funnel,
-    }
+    }

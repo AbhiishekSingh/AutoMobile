@@ -8,7 +8,8 @@ from app.modules.leads.lookup_names import lookup_key
 from app.modules.leads.models import (Disposition, Lead, LeadType, LostReason,
                                       OpportunityStatus, SLAFlag, TestRide,
                                       TestRideStatus)
-from app.modules.users.models import AppUser, Role
+from app.modules.users.access import scope_leads
+from app.modules.users.models import AppUser
 
 
 # ---------------------------------------------------------------------------
@@ -158,27 +159,15 @@ def mask_phone(phone: str) -> str:
     return f"{p[:2]}{'X' * (len(p) - 4)}{p[-2:]}"
 
 
-def scope(query, user: AppUser):
-    """Visibility rule for a PBA's Leads/Pipeline/Follow-ups/Customers screens.
+def scope(query, user: AppUser, branch_id: int | None = None):
+    """Limit a Lead query to what `user` may see (optionally one branch).
 
-    A PBA sees:
-      - leads specifically assigned to THEM (assigned_user_id == their id),
-        regardless of branch — so a lead they own is never hidden from them, and
-      - unassigned leads in their own branch, so there's still a pool of
-        unclaimed leads to pick up.
-
-    A PBA does NOT see another PBA's assigned leads just because it's the same
-    branch — previously this filtered on branch alone, so every PBA in a branch
-    saw every lead in that branch no matter who (if anyone) it was assigned to.
-    That meant "assignment" and "visibility" were two unrelated things; this
-    keeps them in sync. Owner/GM/Admin are unaffected — they still see everything.
+    The rule itself lives in app/modules/users/access.py (scope_leads) so
+    Leads, Customers, Follow Ups, Dashboard and Quotations all share it:
+    PBA = own leads + unassigned in own branch; CRE = every lead in their
+    1-2 branches; Owner/GM/Admin = everything.
     """
-    if user.role == Role.PBA and user.branch_id:
-        query = query.filter(
-            (Lead.assigned_user_id == user.user_id) |
-            ((Lead.assigned_user_id.is_(None)) & (Lead.branch_id == user.branch_id))
-        )
-    return query
+    return scope_leads(query, user, branch_id)
 
 
 def _ids_named(db: Session, Model, name: str) -> list[int]:
@@ -221,4 +210,4 @@ def bucket_filter(query, bucket: str, db: Session):
         o_ids = _ids_named(db, OpportunityStatus, "CASUAL ENQUIRY")
         return query.filter((Lead.lost_reason_id == (r.id if r else -1)) |
                             Lead.opportunity_status_id.in_(o_ids or [-1]))
-    return query
+    return query

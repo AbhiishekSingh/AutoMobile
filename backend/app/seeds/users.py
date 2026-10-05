@@ -5,7 +5,7 @@ Default passwords are for local development only — change them in production.
 """
 from app.core.database import Base, SessionLocal, engine
 from app.db import base as _base  # register models
-from app.modules.users.models import AppUser, Branch, Role
+from app.modules.users.models import AppUser, Branch, Role, UserBranch
 from app.core.security import hash_password
 
 BRANCHES = [
@@ -61,6 +61,9 @@ def run():
                 role=role,
                 branch_id=thane.branch_id if thane else None,
                 is_active=True,
+                # a CRE covers 1-2 branches (Admin changes these on the Users page)
+                branch_links=[UserBranch(branch_id=thane.branch_id)]
+                if role == Role.CRE and thane else [],
             ))
         db.commit()
         print("Seed complete. Logins:")

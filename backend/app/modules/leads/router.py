@@ -24,10 +24,15 @@ from app.modules.leads.service import (bucket_filter, check_followup_date,
 from app.modules.notifications.models import NotificationType
 from app.modules.notifications.service import create_notification
 from app.modules.quotations.models import Quotation, QuotationStatus
+from app.modules.users.access import (MANAGER_ROLES, SALES_ROLES,
+                                      check_branch_access, dashboard_branch,
+                                      get_visible_lead, is_cre)
 from app.modules.users.models import AppUser, Branch, Role
 
 router = APIRouter(tags=["pba"])
-READ_ROLES = ("PBA", "OWNER", "GM", "ADMIN")
+READ_ROLES = SALES_ROLES + MANAGER_ROLES      # PBA, CRE, Owner, GM, Admin
+# Screens with a branch filter take `?branch_id=` — CRE picks one of their
+# branches; leaving it out shows all the branches they can see.
 
 # Enquiry-mode tiles shown first on the Leads screen (after "Total Leads").
 # Add more names here to pin them too, e.g. ["Walk-in", "Digital"].
@@ -58,8 +63,10 @@ def _require_listed(db: Session, Model, value_id: int | None, label: str) -> Non
 
 
 @router.get("/leads/tiles", dependencies=[Depends(require_roles(*READ_ROLES))])
-def tiles(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    base = scope(db.query(Lead.mode_id, func.count(Lead.lead_id)), user).group_by(Lead.mode_id)
+def tiles(branch_id: int | None = None, user: AppUser = Depends(get_current_user),
+          db: Session = Depends(get_db)):
+    base = scope(db.query(Lead.mode_id, func.count(Lead.lead_id)), user,
+                 branch_id).group_by(Lead.mode_id)
     counts = {mid: c for mid, c in base.all()}
     modes = db.query(EnquiryMode).order_by(EnquiryMode.id).all()
     # Tiles pinned to the front, in this order, right after "Total Leads".
@@ -75,14 +82,15 @@ def tiles(user: AppUser = Depends(get_current_user), db: Session = Depends(get_d
 
 
 @router.get("/leads/pipeline", dependencies=[Depends(require_roles(*READ_ROLES))])
-def pipeline(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def pipeline(branch_id: int | None = None, user: AppUser = Depends(get_current_user),
+             db: Session = Depends(get_db)):
     buckets = [("all", "All Leads"), ("completed", "Completed"), ("pending", "Pending"),
                ("overdue", "Overdue"), ("calllater", "Call Later"), ("testride", "Test Ride"),
                ("casual", "Casual Enquiry"), ("future", "Future Lead"),
                ("service", "Service / Spare Part"), ("closed", "Closed")]
     out = []
     for key, label in buckets:
-        q = bucket_filter(scope(db.query(func.count(Lead.lead_id)), user), key, db)
+        q = bucket_filter(scope(db.query(func.count(Lead.lead_id)), user, branch_id), key, db)
         out.append({"key": key, "label": label, "count": q.scalar() or 0})
     return out
 
@@ -91,8 +99,8 @@ def pipeline(user: AppUser = Depends(get_current_user), db: Session = Depends(ge
             dependencies=[Depends(require_roles(*READ_ROLES))])
 def list_leads(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db),
                mode: str | None = None, bucket: str = "all", search: str | None = None,
-               page: int = 1, page_size: int = 10):
-    q = scope(db.query(Lead).join(Customer), user)
+               page: int = 1, page_size: int = 10, branch_id: int | None = None):
+    q = scope(db.query(Lead).join(Customer), user, branch_id)
     if mode and mode != "total":
         m = db.query(EnquiryMode).filter(EnquiryMode.name == mode).first()
         q = q.filter(Lead.mode_id == (m.id if m else -1))
@@ -114,10 +122,10 @@ def list_leads(user: AppUser = Depends(get_current_user), db: Session = Depends(
 
 @router.get("/leads/{lead_id}", response_model=LeadDetail,
             dependencies=[Depends(require_roles(*READ_ROLES))])
-def lead_detail(lead_id: int, db: Session = Depends(get_db)):
-    l = db.get(Lead, lead_id)
-    if not l:
-        raise HTTPException(404, "Lead not found")
+def lead_detail(lead_id: int, user: AppUser = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    # only a lead this user may see (PBA: own/unassigned in branch, CRE: their branches)
+    l = get_visible_lead(db, user, lead_id)
     branch = db.get(Branch, l.branch_id) if l.branch_id else None
     sp = db.get(AppUser, l.assigned_user_id) if l.assigned_user_id else None
     within3 = None
@@ -152,9 +160,31 @@ def lead_detail(lead_id: int, db: Session = Depends(get_db)):
                     for t in l.test_rides])
 
 
-@router.post("/leads", status_code=201, dependencies=[Depends(require_roles("PBA"))])
+@router.post("/leads", status_code=201, dependencies=[Depends(require_roles(*SALES_ROLES))])
 def create_lead(body: LeadCreate, user: AppUser = Depends(get_current_user),
                 db: Session = Depends(get_db)):
+    """Add a walk-in lead.
+
+    PBA: the lead goes to the PBA's own branch and is assigned to them.
+    CRE: picks the branch (one of theirs) and, optionally, the PBA in that
+         branch to assign it to — or leaves it unassigned in that branch.
+    """
+    if is_cre(user):
+        if not body.branch_id:
+            raise HTTPException(400, "Please choose the branch for this lead")
+        check_branch_access(user, body.branch_id)
+        branch = db.get(Branch, body.branch_id)
+        if not branch:
+            raise HTTPException(400, "Unknown branch")
+        assignee = None
+        if body.assigned_user_id:
+            assignee = db.get(AppUser, body.assigned_user_id)
+            if (not assignee or not assignee.is_active or assignee.role != Role.PBA
+                    or assignee.branch_id != branch.branch_id):
+                raise HTTPException(400, "Please choose an active PBA from this branch")
+    else:
+        branch, assignee = user.branch, user
+
     cust = db.query(Customer).filter(Customer.phone == body.phone).first()
     if not cust:
         cust = Customer(phone=body.phone, full_name=body.full_name, alt_phone=body.alt_phone,
@@ -162,20 +192,30 @@ def create_lead(body: LeadCreate, user: AppUser = Depends(get_current_user),
         db.add(cust); db.flush()
     seq = (db.query(func.count(Lead.lead_id)).scalar() or 0) + 1
     lead = Lead(enquiry_no=f"ENQ{100000 + seq}", customer_id=cust.customer_id,
-                branch_id=user.branch_id, assigned_user_id=user.user_id, mode_id=body.mode_id,
+                branch_id=branch.branch_id if branch else None,
+                assigned_user_id=assignee.user_id if assignee else None,
+                mode_id=body.mode_id,
                 model_id=body.model_id, color=body.color, lead_type=LeadType(body.lead_type),
                 source=LeadSource(body.source), enquiry_at=now_ist(),
-                sla_flag=SLAFlag.YELLOW, salesperson_email=user.email,
-                # the PBA's showroom code (the branch table's code column)
-                branch_code=user.branch.dealer_code if user.branch else None)
-    # No notification here: assigned_user_id is always the creating PBA
-    # themselves (self-assigned), and we intentionally never notify a user
-    # about their own action.
-    db.add(lead); db.commit(); db.refresh(lead)
+                sla_flag=SLAFlag.YELLOW,
+                salesperson_email=assignee.email if assignee else None,
+                # the branch's showroom code (the branch table's code column)
+                branch_code=branch.dealer_code if branch else None)
+    db.add(lead); db.flush()
+    # A PBA adding their own lead isn't notified (create_notification skips
+    # self-notifying); a CRE assigning it to a PBA does notify that PBA.
+    if assignee:
+        create_notification(
+            db, user_id=assignee.user_id, type_=NotificationType.LEAD_ASSIGNED,
+            title="New lead assigned to you",
+            message=f"Walk-in lead {lead.enquiry_no} ({cust.full_name}) "
+                    f"has been assigned to you by {user.full_name}.",
+            reference_type="lead", reference_id=lead.lead_id, actor_user_id=user.user_id)
+    db.commit(); db.refresh(lead)
     return {"lead_id": lead.lead_id, "enquiry_no": lead.enquiry_no}
 
 
-EDIT_ROLES = ("PBA", "OWNER", "GM", "ADMIN")
+EDIT_ROLES = READ_ROLES
 CUSTOMER_FIELDS = ("full_name", "phone", "pincode", "city", "alt_phone")
 LEAD_FIELDS = ("enquiry_at", "first_contact_at", "dealer_code", "branch_code", "salesperson_email",
                "mode_id", "model_id", "color", "sku_code", "opportunity_status_id",
@@ -185,9 +225,7 @@ LEAD_FIELDS = ("enquiry_at", "first_contact_at", "dealer_code", "branch_code", "
 @router.patch("/leads/{lead_id}", dependencies=[Depends(require_roles(*EDIT_ROLES))])
 def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_current_user),
                 db: Session = Depends(get_db)):
-    lead = db.get(Lead, lead_id)
-    if not lead:
-        raise HTTPException(404, "Lead not found")
+    lead = get_visible_lead(db, user, lead_id)
     data = body.model_dump(exclude_unset=True)   # only the keys actually sent
 
     # Snapshot "before" values up front, for every field this endpoint can
@@ -246,8 +284,8 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
     # ---- reassignment (kept separate: it's the one field that must trigger a
     # notification, so we need the before/after values, not just a blind setattr) ----
     if "assigned_user_id" in data:
-        if user.role == Role.PBA:
-            # A PBA can update their own leads' details, but re-assigning a lead
+        if user.role.value in SALES_ROLES:
+            # A PBA/CRE can update a lead's details, but re-assigning a lead
             # to someone else (or themselves) is a management action.
             raise HTTPException(403, "Only Owner/GM/Admin can reassign a lead")
         new_assignee_id = data["assigned_user_id"]
@@ -284,12 +322,12 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
 
 
 @router.post("/leads/{lead_id}/followups", status_code=201,
-             dependencies=[Depends(require_roles("PBA"))])
+             dependencies=[Depends(require_roles(*SALES_ROLES))])
 def add_followup(lead_id: int, body: FollowupCreate,
                  user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    lead = db.get(Lead, lead_id)
-    if not lead:
-        raise HTTPException(404, "Lead not found")
+    # saved under the person who made the call (PBA or CRE); the lead stays
+    # assigned to its PBA
+    lead = get_visible_lead(db, user, lead_id)
     _require_listed(db, Disposition, body.disposition_id, "Follow-up Disposition")
     _require_listed(db, OpportunityStatus, body.opportunity_status_id, "Opportunity Status")
     try:
@@ -315,14 +353,12 @@ def add_followup(lead_id: int, body: FollowupCreate,
 
 
 @router.post("/leads/{lead_id}/test-rides", status_code=201,
-             dependencies=[Depends(require_roles("PBA"))])
+             dependencies=[Depends(require_roles(*SALES_ROLES))])
 def add_test_ride(lead_id: int, body: TestRideCreate, user: AppUser = Depends(get_current_user),
                   db: Session = Depends(get_db)):
     """Book a test ride (or record a spot ride that's happening right now).
     Rules + automatic lead-status update: app/modules/leads/test_rides.py"""
-    lead = scope(db.query(Lead), user).filter(Lead.lead_id == lead_id).first()
-    if not lead:
-        raise HTTPException(404, "Lead not found")
+    lead = get_visible_lead(db, user, lead_id)
     t = create_test_ride(db, lead, status=body.status, scheduled_at=body.scheduled_at,
                          model_id=body.model_id, color=body.color, slot=body.slot,
                          preferred_location=body.preferred_location,
@@ -331,7 +367,7 @@ def add_test_ride(lead_id: int, body: TestRideCreate, user: AppUser = Depends(ge
     return {"test_ride_id": t.id, "status": t.status.value}
 
 
-@router.patch("/test-rides/{ride_id}", dependencies=[Depends(require_roles("PBA"))])
+@router.patch("/test-rides/{ride_id}", dependencies=[Depends(require_roles(*SALES_ROLES))])
 def change_test_ride(ride_id: int, body: TestRideAction, user: AppUser = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     """The buttons on a Test Ride History row: Mark Completed / Reschedule /
@@ -349,9 +385,11 @@ def change_test_ride(ride_id: int, body: TestRideAction, user: AppUser = Depends
 @router.get("/customers", response_model=CustomerListResponse,
             dependencies=[Depends(require_roles(*READ_ROLES))])
 def list_customers(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db),
-                   search: str | None = None, page: int = 1, page_size: int = 10):
-    # Only customers who have at least one lead visible to this user (branch-scoped).
-    lead_ids = scope(db.query(Lead.customer_id), user).distinct().scalar_subquery()
+                   search: str | None = None, page: int = 1, page_size: int = 10,
+                   branch_id: int | None = None):
+    # Only customers who have at least one lead visible to this user (and in
+    # the chosen branch, if the branch filter is set).
+    lead_ids = scope(db.query(Lead.customer_id), user, branch_id).distinct().scalar_subquery()
     q = db.query(Customer).filter(Customer.customer_id.in_(lead_ids))
     if search:
         like = f"%{search}%"
@@ -361,7 +399,7 @@ def list_customers(user: AppUser = Depends(get_current_user), db: Session = Depe
     custs = q.order_by(Customer.full_name).offset((page - 1) * page_size).limit(page_size).all()
     rows = []
     for c in custs:
-        visible = scope(db.query(Lead).filter(Lead.customer_id == c.customer_id), user)
+        visible = scope(db.query(Lead).filter(Lead.customer_id == c.customer_id), user, branch_id)
         latest = visible.order_by(Lead.enquiry_at.desc()).first()
         rows.append(dict(
             customer_id=c.customer_id, full_name=c.full_name,
@@ -378,13 +416,14 @@ def list_customers(user: AppUser = Depends(get_current_user), db: Session = Depe
             dependencies=[Depends(require_roles(*READ_ROLES))])
 def list_followups(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db),
                    bucket: str = "all", search: str | None = None,
-                   page: int = 1, page_size: int = 10):
+                   page: int = 1, page_size: int = 10, branch_id: int | None = None):
     now = now_ist()
     day_start = datetime(now.year, now.month, now.day)
     day_end = day_start + timedelta(days=1)
 
     def base():
-        q = scope(db.query(Lead).join(Customer), user).filter(Lead.next_followup_at.isnot(None))
+        q = scope(db.query(Lead).join(Customer), user, branch_id).filter(
+            Lead.next_followup_at.isnot(None))
         return q
 
     counts = {
@@ -429,8 +468,13 @@ def list_followups(user: AppUser = Depends(get_current_user), db: Session = Depe
 
 @router.get("/pba/dashboard", response_model=PBADashboard,
             dependencies=[Depends(require_roles(*READ_ROLES))])
-def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_user),
-                  db: Session = Depends(get_db)):
+def pba_dashboard(period: str = "today", branch_id: int | None = None,
+                  user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """PBA: their own numbers. CRE: one branch at a time (`branch_id`, one of
+    theirs; defaults to their first branch). Owner/GM/Admin: everything, or
+    one branch if `branch_id` is given."""
+    branch_id = dashboard_branch(user, branch_id)
+
     # "PERFORMANCE TRACKER" tiles (open bookings/booked/invoiced/delivered)
     # respect the period dropdown ("today"/"week"/"month"/"year").
     period_start, period_end = period_range(period)
@@ -438,7 +482,8 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
     def stage(s):
         return scope(db.query(func.count(Lead.lead_id)).filter(
             Lead.enquiry_stage == s,
-            Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end), user).scalar() or 0
+            Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end), user,
+            branch_id).scalar() or 0
 
     # "TODAY'S" tiles (calls_today/quotations_shared) are always today's
     # activity, independent of the period dropdown — matches the UI label.
@@ -461,7 +506,7 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
             q = q.filter(tr_date >= today_start_dt)
         elif upcoming is False:
             q = q.filter(tr_date < today_start_dt)
-        return scope(q, user).scalar() or 0
+        return scope(q, user, branch_id).scalar() or 0
 
     open_statuses = (TestRideStatus.BOOKED, TestRideStatus.RESCHEDULED)
     tr_completed = test_rides(TestRideStatus.COMPLETED)
@@ -488,7 +533,7 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
             Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
         if stages:
             q = q.filter(Lead.enquiry_stage.in_(stages))
-        return scope(q, user).scalar() or 0
+        return scope(q, user, branch_id).scalar() or 0
 
     target_total = leads_in_period()
     target_achieved = leads_in_period(EnquiryStage.BOOKED, EnquiryStage.INVOICED)
@@ -496,14 +541,21 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
 
     calls_today = scope(db.query(func.count(Lead.lead_id)).filter(
         Lead.next_followup_at.isnot(None),
-        Lead.next_followup_at >= today_start, Lead.next_followup_at < today_end), user).scalar() or 0
+        Lead.next_followup_at >= today_start, Lead.next_followup_at < today_end), user,
+        branch_id).scalar() or 0
 
-    quotations_shared_q = db.query(func.count(Quotation.quotation_id)).filter(
-        Quotation.status == QuotationStatus.SHARED,
-        Quotation.updated_at >= today_start, Quotation.updated_at < today_end,
-        Quotation.created_by_user_id == user.user_id)
-    if user.role == Role.PBA and user.branch_id:
-        quotations_shared_q = quotations_shared_q.filter(Quotation.branch_id == user.branch_id)
+    # Quotations shared today: a PBA counts their own; a CRE (and Owner/GM/
+    # Admin) counts every quotation shared on the branch's leads.
+    quotations_shared_q = (db.query(func.count(Quotation.quotation_id))
+                           .join(Lead, Quotation.lead_id == Lead.lead_id)
+                           .filter(Quotation.status == QuotationStatus.SHARED,
+                                   Quotation.updated_at >= today_start,
+                                   Quotation.updated_at < today_end))
+    if user.role == Role.PBA:
+        quotations_shared_q = quotations_shared_q.filter(
+            Quotation.created_by_user_id == user.user_id)
+    else:
+        quotations_shared_q = scope(quotations_shared_q, user, branch_id)
     quotations_shared = quotations_shared_q.scalar() or 0
 
     return PBADashboard(open_bookings=stage(EnquiryStage.BOOKED), booked=stage(EnquiryStage.BOOKED),
@@ -515,4 +567,4 @@ def pba_dashboard(period: str = "today", user: AppUser = Depends(get_current_use
                         test_rides_cancelled=tr_cancelled, test_rides_total=tr_total,
                         test_rides_due=tr_due, td_completed_ratio=td_ratio,
                         total_target_ratio=target_ratio,
-                        target_achieved=target_achieved, target_total=target_total)
+                        target_achieved=target_achieved, target_total=target_total)

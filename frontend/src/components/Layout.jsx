@@ -101,7 +101,7 @@ const ADMIN_MENU = [
   {                      icon: <SettingsIcon w={18} h={18} />, label: 'Settings'                 },
 ]
 
-const MENU_BY_ROLE = { PBA: PBA_MENU, ADMIN: ADMIN_MENU }
+const MENU_BY_ROLE = { PBA: PBA_MENU, CRE: PBA_MENU, ADMIN: ADMIN_MENU }   // CRE uses the PBA screens
 const COLLAPSE_KEY = 'sk-crm-sidebar-collapsed'
 
 export default function Layout({ title, sub, back, children }) {
@@ -242,4 +242,4 @@ export default function Layout({ title, sub, back, children }) {
       </div>
     </div>
   )
-}
+}

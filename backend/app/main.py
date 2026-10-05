@@ -7,6 +7,7 @@ from app.db.schema_updates import apply_schema_updates
 from app.db import base  # noqa: F401  (registers all models)
 from app.modules.auth.router import router as auth_router
 from app.modules.users.router import router as users_router
+from app.modules.users.me_router import router as me_router
 from app.modules.leads.router import router as leads_router
 from app.modules.imports.router import router as imports_router
 from app.modules.quotations.router import router as quotations_router
@@ -27,6 +28,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(me_router)
 app.include_router(leads_router)
 app.include_router(imports_router)
 app.include_router(quotations_router)
@@ -61,4 +63,4 @@ def sync_lookups_on_startup():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok"}

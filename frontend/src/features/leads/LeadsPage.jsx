@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { Empty, Loading, Pager, fmtDateTime } from '../../components/ui'
 import api from '../../lib/api'
+import BranchFilter, { useBranchFilter } from '../../components/BranchFilter'
 
 const EMPTY_WALKIN = {
   full_name: '', phone: '', alt_phone: '', city: '', pincode: '',
   mode_id: '', model_id: '', color: '', lead_type: 'SALES', source: 'WALKIN',
+  branch_id: '', assigned_user_id: '',   // CRE only: which branch + which PBA (optional)
 }
 
 // Icon + accent colour for each source tile, keyed by the mode name (lowercased).
@@ -122,26 +124,37 @@ export default function LeadsPage() {
   const [msg, setMsg] = useState('')
 
   const pageSize = 10
+  const branch = useBranchFilter()   // CRE only: All my branches / one branch
+  const [pbas, setPbas] = useState([])   // CRE walk-in form: PBAs of the chosen branch
 
   function loadTiles() {
-    api.get('/leads/tiles').then((r) => setTiles(r.data)).catch(() => setTiles([]))
-    api.get('/leads/pipeline').then((r) => setPipeline(r.data)).catch(() => setPipeline([]))
+    if (!branch.ready) return
+    const params = { ...branch.params }
+    api.get('/leads/tiles', { params }).then((r) => setTiles(r.data)).catch(() => setTiles([]))
+    api.get('/leads/pipeline', { params }).then((r) => setPipeline(r.data)).catch(() => setPipeline([]))
   }
 
   useEffect(() => {
-    loadTiles()
     api.get('/lookups').then((r) => setLookups(r.data)).catch(() => setLookups(null))
   }, [])
+  useEffect(() => { loadTiles() }, [branch.ready, branch.branchId])
+
+  // CRE walk-in form: reload the PBA list whenever the chosen branch changes
+  useEffect(() => {
+    if (!branch.show || !form.branch_id) { setPbas([]); return }
+    api.get(`/me/branches/${form.branch_id}/pbas`).then((r) => setPbas(r.data)).catch(() => setPbas([]))
+  }, [branch.show, form.branch_id])
 
   function loadList() {
+    if (!branch.ready) return
     setList(null)
-    api.get('/leads', { params: { mode, bucket, search: search || undefined, page, page_size: pageSize } })
+    api.get('/leads', { params: { mode, bucket, search: search || undefined, page, page_size: pageSize, ...branch.params } })
       .then((r) => setList(r.data))
       .catch(() => setList({ total: 0, page: 1, page_size: pageSize, rows: [] }))
   }
 
   // Re-fetch whenever a filter changes — this is what makes the tiles/pipeline clickable.
-  useEffect(() => { loadList() }, [mode, bucket, page])
+  useEffect(() => { loadList() }, [mode, bucket, page, branch.ready, branch.branchId])
 
   function pickSource(key) { setMode(key); setPage(1) }
   function pickBucket(key) { setBucket(key); setPage(1) }
@@ -149,6 +162,17 @@ export default function LeadsPage() {
   function submitSearch(e) { e.preventDefault(); setPage(1); loadList() }
 
   const setF = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  // changing the branch clears the PBA picked for the old branch
+  const setBranchF = (e) => setForm({ ...form, branch_id: e.target.value, assigned_user_id: '' })
+
+  function openWalkin() {
+    if (showForm) { setShowForm(false); return }
+    // CRE: start on the branch the screen is filtered to (or their first branch)
+    const startBranch = branch.branchId || (branch.branches.length === 1 ? String(branch.branches[0].branch_id) : '')
+    setForm({ ...EMPTY_WALKIN, branch_id: branch.show ? startBranch : '' })
+    setMsg('')
+    setShowForm(true)
+  }
 
   async function addWalkin(e) {
     e.preventDefault()
@@ -158,6 +182,9 @@ export default function LeadsPage() {
         ...form,
         mode_id: form.mode_id ? Number(form.mode_id) : null,
         model_id: form.model_id ? Number(form.model_id) : null,
+        // CRE: branch is required, PBA is optional (empty = unassigned in that branch)
+        branch_id: form.branch_id ? Number(form.branch_id) : null,
+        assigned_user_id: form.assigned_user_id ? Number(form.assigned_user_id) : null,
       }
       const { data } = await api.post('/leads', payload)
       setMsg(`Lead ${data.enquiry_no} created.`)
@@ -171,7 +198,7 @@ export default function LeadsPage() {
   // Export the current filtered result set to CSV (fetches all matching rows, not just this page).
   async function exportCsv() {
     try {
-      const { data } = await api.get('/leads', { params: { mode, bucket, search: search || undefined, page: 1, page_size: 100000 } })
+      const { data } = await api.get('/leads', { params: { mode, bucket, search: search || undefined, page: 1, page_size: 100000, ...branch.params } })
       const rows = data.rows || []
       const head = ['Enquiry No', 'Enquiry Date', 'Enquiry Mode', 'Customer', 'Contact', 'Model', 'Opportunity Status', 'Disposition', 'SLA']
       const body = rows.map((l) => [
@@ -192,6 +219,11 @@ export default function LeadsPage() {
 
   return (
     <Layout title="Lead Management" sub="Enquiry sources, pipeline & all leads">
+      {branch.show && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <BranchFilter branch={branch} onChange={() => setPage(1)} />
+        </div>
+      )}
       {/* ---------- source tiles (counts from DB) ---------- */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 14 }}>
         {tiles.map((t) => {
@@ -227,7 +259,7 @@ export default function LeadsPage() {
       <div className="card" style={{ marginTop: 18 }}>
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3>Pipeline <span className="muted-note">· click a status to filter the table below</span></h3>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowForm((s) => !s)}>
+          <button className="btn btn-primary btn-sm" onClick={openWalkin}>
             {showForm ? 'Close' : '+ Add Walk-in'}
           </button>
         </div>
@@ -259,6 +291,22 @@ export default function LeadsPage() {
           <div className="card-header"><h3>New Walk-in Lead</h3></div>
           <form className="card-pad" onSubmit={addWalkin}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+              {branch.show && (
+                <>
+                  <div className="field"><label>Branch *</label>
+                    <select className="input" value={form.branch_id} onChange={setBranchF} required>
+                      <option value="">— select branch —</option>
+                      {branch.branches.map((b) => <option key={b.branch_id} value={b.branch_id}>{b.name}</option>)}
+                    </select></div>
+                  <div className="field"><label>Assign to PBA</label>
+                    <select className="input" value={form.assigned_user_id} onChange={setF('assigned_user_id')}
+                            disabled={!form.branch_id}>
+                      <option value="">— Leave unassigned —</option>
+                      {pbas.map((p) => <option key={p.user_id} value={p.user_id}>{p.full_name} ({p.login_id})</option>)}
+                    </select></div>
+                  <div />
+                </>
+              )}
               <div className="field"><label>Full name *</label>
                 <input className="input" value={form.full_name} onChange={setF('full_name')} required /></div>
               <div className="field"><label>Mobile *</label>

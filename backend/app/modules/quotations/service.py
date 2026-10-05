@@ -1,7 +1,7 @@
 """Reusable helpers for the quotations module (kept out of the router)."""
 from datetime import timedelta
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import now_ist
@@ -12,16 +12,19 @@ from app.modules.quotations.models import (DEFAULT_DOCUMENTS,
                                            QuotationDocument,
                                            QuotationEmiOption,
                                            QuotationInclusion)
-from app.modules.users.models import AppUser, Role
+from app.modules.users.access import MANAGER_ROLES, scope_leads
+from app.modules.users.models import AppUser
 
 VALIDITY_DAYS = 15
 
 
 def scope(query, user: AppUser):
-    """PBA sees only their branch's quotations; Owner/GM/Admin see all."""
-    if user.role == Role.PBA and user.branch_id:
-        query = query.filter(Quotation.branch_id == user.branch_id)
-    return query
+    """A user sees a quotation if they can see its LEAD (same rule as the
+    Leads screen — app/modules/users/access.py). Owner/GM/Admin see all."""
+    if user.role.value in MANAGER_ROLES:
+        return query
+    visible_leads = scope_leads(select(Lead.lead_id), user)
+    return query.filter(Quotation.lead_id.in_(visible_leads))
 
 
 def next_quotation_no(db: Session) -> str:
@@ -52,4 +55,4 @@ def mark_lead_quoted(lead: Lead) -> None:
         lead.enquiry_stage = EnquiryStage.QUOTED
 
 def default_valid_until():
-    return now_ist() + timedelta(days=VALIDITY_DAYS)
+    return now_ist() + timedelta(days=VALIDITY_DAYS)

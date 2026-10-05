@@ -8,7 +8,7 @@ export const ROLE_HOME = {
   OWNER: '/owner',
   GM: '/gm',
   PBA: '/dashboard',
-  CRE: '/cre',
+  CRE: '/dashboard',   // same screens as PBA, scoped to the CRE's branches
   RTO: '/rto',
   ADMIN: '/admin',
 }

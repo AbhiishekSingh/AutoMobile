@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { Sla, Empty, Loading, Pager, fmtDateTime } from '../../components/ui'
 import api from '../../lib/api'
+import BranchFilter, { useBranchFilter } from '../../components/BranchFilter'
 
 const BUCKETS = [
   { key: 'all', label: 'All' },
@@ -24,14 +25,16 @@ export default function FollowupsPage() {
   const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const pageSize = 10
+  const branch = useBranchFilter()   // CRE only: All my branches / one branch
 
   function load() {
+    if (!branch.ready) return
     setData(null)
-    api.get('/followups', { params: { bucket, search: search || undefined, page, page_size: pageSize } })
+    api.get('/followups', { params: { bucket, search: search || undefined, page, page_size: pageSize, ...branch.params } })
       .then((r) => setData(r.data))
       .catch(() => setData({ total: 0, page: 1, page_size: pageSize, counts: {}, rows: [] }))
   }
-  useEffect(() => { load() }, [bucket, page])
+  useEffect(() => { load() }, [bucket, page, branch.ready, branch.branchId])
 
   function submit(e) { e.preventDefault(); setPage(1); load() }
   const counts = data?.counts || {}
@@ -50,6 +53,7 @@ export default function FollowupsPage() {
             ))}
           </div>
           <form onSubmit={submit} style={{ display: 'flex', gap: 8 }}>
+            <BranchFilter branch={branch} onChange={() => setPage(1)} />
             <input className="input" style={{ maxWidth: 220 }} placeholder="Search name / phone / enquiry"
                    value={search} onChange={(e) => setSearch(e.target.value)} />
             <button className="btn btn-outline btn-sm">Search</button>

@@ -146,6 +146,9 @@ class LeadCreate(BaseModel):
     color: Optional[str] = None
     lead_type: str = "SALES"
     source: str = "WALKIN"
+    # CRE only (ignored for a PBA, whose lead goes to their own branch + themselves):
+    branch_id: Optional[int] = None          # which of the CRE's branches
+    assigned_user_id: Optional[int] = None   # PBA in that branch; empty = unassigned
 
 
 class FollowupCreate(BaseModel):
@@ -233,4 +236,4 @@ class PBADashboard(BaseModel):
     # reached BOOKED/INVOICED, and the numbers behind it
     total_target_ratio: int = 0
     target_achieved: int = 0
-    target_total: int = 0
+    target_total: int = 0

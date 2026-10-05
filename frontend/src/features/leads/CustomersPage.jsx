@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { Empty, Loading, Pager, fmtDate } from '../../components/ui'
 import api from '../../lib/api'
+import BranchFilter, { useBranchFilter } from '../../components/BranchFilter'
 
 export default function CustomersPage() {
   const nav = useNavigate()
@@ -10,14 +11,16 @@ export default function CustomersPage() {
   const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const pageSize = 10
+  const branch = useBranchFilter()   // CRE only: All my branches / one branch
 
   function load() {
+    if (!branch.ready) return
     setData(null)
-    api.get('/customers', { params: { search: search || undefined, page, page_size: pageSize } })
+    api.get('/customers', { params: { search: search || undefined, page, page_size: pageSize, ...branch.params } })
       .then((r) => setData(r.data))
       .catch(() => setData({ total: 0, page: 1, page_size: pageSize, rows: [] }))
   }
-  useEffect(() => { load() }, [page])
+  useEffect(() => { load() }, [page, branch.ready, branch.branchId])
 
   function submit(e) { e.preventDefault(); setPage(1); load() }
 
@@ -27,6 +30,7 @@ export default function CustomersPage() {
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3>Customers {data && <span className="muted-note">({data.total})</span>}</h3>
           <form onSubmit={submit} style={{ display: 'flex', gap: 8 }}>
+            <BranchFilter branch={branch} onChange={() => setPage(1)} />
             <input className="input" style={{ maxWidth: 240 }} placeholder="Search name / phone / city"
                    value={search} onChange={(e) => setSearch(e.target.value)} />
             <button className="btn btn-outline btn-sm">Search</button>
