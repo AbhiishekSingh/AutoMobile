@@ -9,6 +9,7 @@ const ENTITY_TYPES = [
   { value: 'lead', label: 'Lead' },
   { value: 'user', label: 'User' },
   { value: 'test_ride', label: 'Test ride' },
+  { value: 'document', label: 'Document' },
 ]
 
 // "full_name" -> "Full Name"

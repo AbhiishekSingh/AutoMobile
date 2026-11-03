@@ -80,7 +80,7 @@ function oppClass(name) {
   if (n.includes('CALL LATER')) return 'badge-amber'
   if (n.includes('RINGING') || n.includes('INCOMING OFF')) return 'badge-purple'
   if (n.includes('FALSE ENQUIRY')) return 'badge-red'
-  if (n.includes('CASUAL') || n.includes('PLAN DROPPED')) return 'badge-gray'
+  if (n.includes('CASUAL') || n.includes('PLAN DROPPED') || n.includes('NO POTENTIAL')) return 'badge-gray'
   // older / imported values (kept so history still looks right)
   if (n.includes('HOT') || n.includes('LOST')) return 'badge-red'
   if (n.includes('WARM')) return 'badge-amber'
@@ -107,6 +107,64 @@ function dispClass(name) {
 const Badge = ({ name, kind }) =>
   name ? <span className={'badge ' + (kind === 'disp' ? dispClass(name) : oppClass(name))}>{name}</span> : <span style={{ color: '#94A3B8' }}>—</span>
 
+// Last 10 digits of an Indian mobile ("+91 98220 10001" -> "9822010001").
+// Same rule as normalize_phone() in backend app/modules/leads/service.py.
+function phone10(v) {
+  let p = String(v || '').replace(/\D/g, '')
+  if (p.length === 12 && p.startsWith('91')) p = p.slice(2)
+  else if (p.length === 11 && p.startsWith('0')) p = p.slice(1)
+  return p
+}
+
+// Shown in the walk-in form when the mobile number is already a customer.
+// The PBA doesn't re-enter details: "Take lead" moves the latest enquiry to
+// them (reopened if closed) and opens it to update the follow-up.
+function ExistingCustomer({ data }) {
+  const c = data.customer
+  const latest = data.enquiries[0]
+  return (
+    <div style={{ gridColumn: '1 / -1', border: '1px solid #F5C77E', background: '#FFF8EC', borderRadius: 12, padding: 14 }}>
+      <div style={{ fontWeight: 700, color: '#92400E', marginBottom: 8 }}>
+        Phone number already exists — this customer is already in the CRM
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '6px 16px', fontSize: 13 }}>
+        <div><span className="muted-note">Name</span><div className="cell-primary">{c.full_name}</div></div>
+        <div><span className="muted-note">Mobile</span><div>{c.phone}</div></div>
+        <div><span className="muted-note">Alt. mobile</span><div>{c.alt_phone || '—'}</div></div>
+        <div><span className="muted-note">City</span><div>{c.city || '—'}</div></div>
+        <div><span className="muted-note">PIN code</span><div>{c.pincode || '—'}</div></div>
+        <div><span className="muted-note">Email</span><div>{c.email || '—'}</div></div>
+      </div>
+      {data.enquiries.length > 0 && (
+        <div className="table-wrap" style={{ marginTop: 12, background: '#fff', borderRadius: 8 }}>
+          <table className="data-table">
+            <thead><tr><th>Enquiry No</th><th>Date</th><th>Model</th><th>Stage</th><th>Opportunity Sts</th><th>PBA</th><th>Branch</th></tr></thead>
+            <tbody>
+              {data.enquiries.map((e) => (
+                <tr key={e.lead_id}>
+                  <td className="cell-muted">{e.enquiry_no}</td>
+                  <td>{fmtDateTime(e.enquiry_at)}</td>
+                  <td>{e.model_name || '—'}</td>
+                  <td>{e.enquiry_stage || '—'}</td>
+                  <td><Badge name={e.opportunity_status} /></td>
+                  <td>{e.assigned_to || 'Unassigned'}</td>
+                  <td>{e.branch_name || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {latest && (
+        <div style={{ fontSize: 12.5, color: '#92400E', marginTop: 10 }}>
+          “Take lead” assigns enquiry <b>{latest.enquiry_no}</b> to you{latest.enquiry_stage === 'CLOSED' ? ' and reopens it' : ''}.
+          No new enquiry is created and the customer's details stay as they are — just update the follow-up.
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function LeadsPage() {
   const nav = useNavigate()
   const [tiles, setTiles] = useState([])
@@ -126,6 +184,24 @@ export default function LeadsPage() {
   const pageSize = 10
   const branch = useBranchFilter()   // CRE only: All my branches / one branch
   const [pbas, setPbas] = useState([])   // CRE walk-in form: PBAs of the chosen branch
+
+  // Returning customer: as soon as a full mobile number is typed, ask the
+  // server if it's already a customer. null = not checked / new customer.
+  const [existing, setExisting] = useState(null)
+  const [checking, setChecking] = useState(false)
+  const phoneDigits = phone10(form.phone)
+  useEffect(() => {
+    if (!showForm || phoneDigits.length !== 10) { setExisting(null); setChecking(false); return }
+    let alive = true
+    setChecking(true)
+    const t = setTimeout(() => {
+      api.get('/customers/lookup', { params: { phone: phoneDigits } })
+        .then((r) => { if (alive) setExisting(r.data.exists ? r.data : null) })
+        .catch(() => { if (alive) setExisting(null) })
+        .finally(() => { if (alive) setChecking(false) })
+    }, 350)
+    return () => { alive = false; clearTimeout(t) }
+  }, [showForm, phoneDigits])
 
   function loadTiles() {
     if (!branch.ready) return
@@ -178,15 +254,29 @@ export default function LeadsPage() {
     e.preventDefault()
     setMsg('')
     try {
-      const payload = {
-        ...form,
-        mode_id: form.mode_id ? Number(form.mode_id) : null,
-        model_id: form.model_id ? Number(form.model_id) : null,
+      const target = {
         // CRE: branch is required, PBA is optional (empty = unassigned in that branch)
         branch_id: form.branch_id ? Number(form.branch_id) : null,
         assigned_user_id: form.assigned_user_id ? Number(form.assigned_user_id) : null,
       }
+      // Returning customer: the server moves their latest enquiry to this
+      // PBA (no new enquiry, details unchanged) — then open it to update the follow-up.
+      if (existing) {
+        const { data } = await api.post('/leads', {
+          ...target, full_name: existing.customer.full_name, phone: phoneDigits,
+        })
+        nav(`/leads/${data.lead_id}`)
+        return
+      }
+      const payload = {
+        ...form,
+        ...target,
+        phone: phoneDigits || form.phone,
+        mode_id: form.mode_id ? Number(form.mode_id) : null,
+        model_id: form.model_id ? Number(form.model_id) : null,
+      }
       const { data } = await api.post('/leads', payload)
+      if (data.existing) { nav(`/leads/${data.lead_id}`); return }
       setMsg(`Lead ${data.enquiry_no} created.`)
       setForm(EMPTY_WALKIN); setShowForm(false)
       loadTiles(); setPage(1); loadList()
@@ -307,10 +397,17 @@ export default function LeadsPage() {
                   <div />
                 </>
               )}
+              {/* Mobile first: a number that's already a customer replaces the rest of the form */}
+              <div className="field"><label>Mobile *</label>
+                <input className="input" value={form.phone} onChange={setF('phone')} required
+                       inputMode="numeric" placeholder="10-digit mobile number" />
+                {checking && <div className="muted-note" style={{ fontSize: 11.5, marginTop: 4 }}>Checking number…</div>}
+              </div>
+              {existing ? (
+                <ExistingCustomer data={existing} />
+              ) : (<>
               <div className="field"><label>Full name *</label>
                 <input className="input" value={form.full_name} onChange={setF('full_name')} required /></div>
-              <div className="field"><label>Mobile *</label>
-                <input className="input" value={form.phone} onChange={setF('phone')} required /></div>
               <div className="field"><label>Alt. mobile</label>
                 <input className="input" value={form.alt_phone} onChange={setF('alt_phone')} /></div>
               <div className="field"><label>City</label>
@@ -334,10 +431,13 @@ export default function LeadsPage() {
                   <option value="SALES">SALES</option>
                   <option value="SERVICE">SERVICE</option>
                 </select></div>
+              </>)}
             </div>
             <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
               <button type="button" className="btn btn-outline" onClick={() => { setShowForm(false); setForm(EMPTY_WALKIN) }}>Cancel</button>
-              <button className="btn btn-primary">Create lead</button>
+              <button className="btn btn-primary" disabled={checking}>
+                {existing ? 'Take lead & update follow-up' : 'Create lead'}
+              </button>
             </div>
             {msg && <div className="hint" style={{ marginTop: 12 }}>{msg}</div>}
           </form>

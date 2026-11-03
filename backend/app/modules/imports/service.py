@@ -27,6 +27,8 @@ from app.modules.leads.models import (BikeModel, Customer, Disposition,
                                       OpportunityStatus, SLAFlag, TestRide,
                                       TestRideStatus)
 from app.modules.leads.lookup_names import build_index, lookup_key
+from app.modules.leads.service import (find_customer_by_phone, normalize_phone,
+                                       update_customer_details)
 from app.modules.notifications.service import create_bulk_assignment_notifications
 from app.modules.users.models import AppUser, Branch, Role
 
@@ -259,7 +261,8 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
     # separate rows flooding their bell.
     assigned_counts: dict[int, int] = {}
     summary = {"rows_read": 0, "leads_created": 0, "customers_new": 0,
-               "customers_matched": 0, "test_rides_created": 0,
+               "customers_matched": 0, "customer_details_updated": 0,
+               "test_rides_created": 0,
                "skipped_duplicates": 0, "skipped_invalid": 0,
                "salesperson_matched": 0, "salesperson_unmatched": 0, "errors": []}
 
@@ -267,7 +270,7 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
         try:
             enquiry_no = _clean(row.get("Enquiry Number"))
             name = _clean(row.get("Customer"))
-            phone = _digits(row.get("Mobile"))
+            phone = normalize_phone(row.get("Mobile"))
 
             # a totally empty / trailing line
             if not enquiry_no and not name and not phone:
@@ -285,11 +288,17 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
                 continue
 
             # ---- customer dedupe by phone ----
-            cust = None
-            if phone:
-                cust = db.query(Customer).filter(Customer.phone == phone).first()
+            # A phone number already in the CRM = returning customer: the
+            # newest details from this file become current, and the details
+            # they replace are kept in customer_detail_history (both shown).
+            cust = find_customer_by_phone(db, phone) if phone else None
             if cust:
                 summary["customers_matched"] += 1
+                if update_customer_details(
+                        db, cust, {"full_name": name, "pincode": _clean(row.get("PIN Code"))},
+                        source="LEADSQUARED", enquiry_no=enquiry_no):
+                    summary["customer_details_updated"] += 1
+                    db.flush()
             else:
                 cust = Customer(phone=phone or f"NA-{enquiry_no}", full_name=name or "Unknown",
                                 pincode=_clean(row.get("PIN Code")))

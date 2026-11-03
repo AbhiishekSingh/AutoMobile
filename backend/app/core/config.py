@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     EMAIL_FROM_ADDRESS: str = ""            # e.g. "S.K Automobiles <no-reply@skautomobiles.in>"
     EMAIL_USE_SSL: bool = False              # set True if using port 465 instead of 587
 
+    # Customer document uploads (Aadhaar, PAN, ...). Files are stored on the
+    # backend server's disk under UPLOAD_DIR (relative to where uvicorn runs).
+    UPLOAD_DIR: str = "uploads"
+    MAX_UPLOAD_MB: int = 5                 # per file
+
     class Config:
         env_file = ".env"
 

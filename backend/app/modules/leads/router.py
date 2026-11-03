@@ -11,7 +11,8 @@ from app.modules.leads.models import (BikeModel, Customer, Disposition,
                                       LeadSource, LostReason, OpportunityStatus,
                                       SLAFlag, TestRide, TestRideStatus,
                                       EnquiryStage)
-from app.modules.leads.schemas import (CustomerListResponse, FollowupCreate,
+from app.modules.leads.schemas import (CustomerListResponse, CustomerLookup,
+                                       FollowupCreate,
                                        FollowupListResponse, LeadCreate,
                                        LeadDetail, LeadListResponse, LeadUpdate,
                                        Lookups, PBADashboard, TestRideAction,
@@ -20,7 +21,8 @@ from app.modules.audit.service import record_changes
 from app.modules.leads.lookup_names import lookup_key
 from app.modules.leads.test_rides import create_test_ride, update_test_ride
 from app.modules.leads.service import (bucket_filter, check_followup_date,
-                                       dropdown_options, is_allowed, mask_phone, scope)
+                                       dropdown_options, find_customer_by_phone,
+                                       is_allowed, mask_phone, normalize_phone, scope)
 from app.modules.notifications.models import NotificationType
 from app.modules.notifications.service import create_notification
 from app.modules.quotations.models import Quotation, QuotationStatus
@@ -132,7 +134,8 @@ def lead_detail(lead_id: int, user: AppUser = Depends(get_current_user),
     if l.first_contact_at and l.enquiry_at:
         within3 = (l.first_contact_at - l.enquiry_at) <= timedelta(hours=3)
     return LeadDetail(
-        lead_id=l.lead_id, enquiry_no=l.enquiry_no, enquiry_date=l.enquiry_at,
+        lead_id=l.lead_id, customer_id=l.customer_id,
+        enquiry_no=l.enquiry_no, enquiry_date=l.enquiry_at,
         enquiry_time=l.enquiry_at.strftime("%H:%M") if l.enquiry_at else None,
         dealer_code=l.dealer_code, branch_code=l.branch_code,
         branch_name=branch.name if branch else None,
@@ -157,7 +160,9 @@ def lead_detail(lead_id: int, user: AppUser = Depends(get_current_user),
         test_rides=[dict(id=t.id, model_name=t.model.name if t.model else None, color=t.color,
                          status=t.status.value, scheduled_at=t.scheduled_at, slot=t.slot,
                          preferred_location=t.preferred_location, completed=t.completed)
-                    for t in l.test_rides])
+                    for t in l.test_rides],
+        # earlier versions of the customer's details, newest first
+        previous_details=list(l.customer.previous_details))
 
 
 @router.post("/leads", status_code=201, dependencies=[Depends(require_roles(*SALES_ROLES))])
@@ -185,9 +190,20 @@ def create_lead(body: LeadCreate, user: AppUser = Depends(get_current_user),
     else:
         branch, assignee = user.branch, user
 
-    cust = db.query(Customer).filter(Customer.phone == body.phone).first()
-    if not cust:
-        cust = Customer(phone=body.phone, full_name=body.full_name, alt_phone=body.alt_phone,
+    phone = normalize_phone(body.phone)
+    if len(phone) < 10:
+        raise HTTPException(400, "Please enter a valid 10-digit mobile number")
+
+    # ---- returning customer: take over their latest enquiry, don't create a new one ----
+    cust = find_customer_by_phone(db, phone)
+    if cust:
+        latest = (db.query(Lead).filter(Lead.customer_id == cust.customer_id)
+                  .order_by(Lead.enquiry_at.desc(), Lead.lead_id.desc()).first())
+        if latest:
+            return _take_over_lead(db, latest, branch, assignee, actor=user)
+        # (a customer with no lead at all is rare — falls through and gets a new enquiry)
+    else:
+        cust = Customer(phone=phone, full_name=body.full_name, alt_phone=body.alt_phone,
                         city=body.city, pincode=body.pincode)
         db.add(cust); db.flush()
     seq = (db.query(func.count(Lead.lead_id)).scalar() or 0) + 1
@@ -212,7 +228,45 @@ def create_lead(body: LeadCreate, user: AppUser = Depends(get_current_user),
                     f"has been assigned to you by {user.full_name}.",
             reference_type="lead", reference_id=lead.lead_id, actor_user_id=user.user_id)
     db.commit(); db.refresh(lead)
-    return {"lead_id": lead.lead_id, "enquiry_no": lead.enquiry_no}
+    return {"lead_id": lead.lead_id, "enquiry_no": lead.enquiry_no, "existing": False}
+
+
+TAKEOVER_FIELDS = ("assigned_user_id", "branch_id", "branch_code", "salesperson_email",
+                   "enquiry_stage")
+
+
+def _take_over_lead(db: Session, lead: Lead, branch: Branch | None, assignee: AppUser | None,
+                    actor: AppUser) -> dict:
+    """A returning customer walked in: the SAME enquiry moves to the PBA who
+    attended them (any PBA, any branch) instead of a new enquiry being made.
+
+      - assigned to the attending PBA (CRE: the PBA they picked, or unassigned
+        in the chosen branch); the lead moves to that branch so its PBAs/CRE see it
+      - a CLOSED enquiry is reopened (back to OPEN)
+      - customer details are NOT changed; the PBA only updates the follow-up
+      - logged in the Activity Log; the previous PBA is not notified
+    """
+    before = {f: getattr(lead, f) for f in TAKEOVER_FIELDS}
+    lead.assigned_user_id = assignee.user_id if assignee else None
+    lead.salesperson_email = assignee.email if assignee else None
+    if branch:
+        lead.branch_id = branch.branch_id
+        lead.branch_code = branch.dealer_code
+    if lead.enquiry_stage == EnquiryStage.CLOSED:
+        lead.enquiry_stage = EnquiryStage.OPEN
+    record_changes(db, entity_type="lead", entity_id=lead.lead_id, before=before, after=lead,
+                   fields=TAKEOVER_FIELDS, changed_by_user_id=actor.user_id)
+    # A CRE handing the lead to a PBA notifies that PBA (a PBA taking it
+    # themselves isn't notified — create_notification skips self-notifying).
+    if assignee and before["assigned_user_id"] != assignee.user_id:
+        create_notification(
+            db, user_id=assignee.user_id, type_=NotificationType.LEAD_ASSIGNED,
+            title="Returning customer assigned to you",
+            message=f"{lead.customer.full_name} walked in again — enquiry {lead.enquiry_no} "
+                    f"has been assigned to you by {actor.full_name}.",
+            reference_type="lead", reference_id=lead.lead_id, actor_user_id=actor.user_id)
+    db.commit()
+    return {"lead_id": lead.lead_id, "enquiry_no": lead.enquiry_no, "existing": True}
 
 
 EDIT_ROLES = READ_ROLES
@@ -380,6 +434,38 @@ def change_test_ride(ride_id: int, body: TestRideAction, user: AppUser = Depends
                      slot=body.slot, actor_user_id=user.user_id)
     db.commit()
     return {"ok": True, "status": ride.status.value}
+
+
+@router.get("/customers/lookup", response_model=CustomerLookup,
+            dependencies=[Depends(require_roles(*READ_ROLES))])
+def lookup_customer(phone: str, db: Session = Depends(get_db)):
+    """Walk-in form phone check: is this number already a customer?
+
+    Searches ALL customers, not just the user's own leads — any PBA can take
+    over a returning customer's enquiry. Only called with a number the PBA
+    has just typed, so the full number is returned (not masked).
+    """
+    if len(normalize_phone(phone)) < 10:
+        return CustomerLookup(exists=False)
+    cust = find_customer_by_phone(db, phone)
+    if not cust:
+        return CustomerLookup(exists=False)
+    leads = (db.query(Lead).filter(Lead.customer_id == cust.customer_id)
+             .order_by(Lead.enquiry_at.desc(), Lead.lead_id.desc()).all())
+    users = {u.user_id: u.full_name for u in db.query(AppUser).filter(
+        AppUser.user_id.in_([l.assigned_user_id for l in leads if l.assigned_user_id] or [-1]))}
+    return CustomerLookup(
+        exists=True,
+        customer=dict(customer_id=cust.customer_id, full_name=cust.full_name, phone=cust.phone,
+                      alt_phone=cust.alt_phone, email=cust.email, city=cust.city,
+                      pincode=cust.pincode),
+        enquiries=[dict(lead_id=l.lead_id, enquiry_no=l.enquiry_no, enquiry_at=l.enquiry_at,
+                        model_name=l.model.name if l.model else None,
+                        enquiry_stage=l.enquiry_stage.value if l.enquiry_stage else None,
+                        opportunity_status=l.opportunity.name if l.opportunity else None,
+                        assigned_to=users.get(l.assigned_user_id),
+                        branch_name=l.branch.name if l.branch else None) for l in leads],
+        previous_details=list(cust.previous_details))
 
 
 @router.get("/customers", response_model=CustomerListResponse,

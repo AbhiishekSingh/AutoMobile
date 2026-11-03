@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import IST, now_ist
 from app.modules.leads.lookup_names import lookup_key
-from app.modules.leads.models import (Disposition, Lead, LeadType, LostReason,
+from app.modules.leads.models import (Customer, CustomerDetailHistory,
+                                      Disposition, Lead, LeadType, LostReason,
                                       OpportunityStatus, SLAFlag, TestRide,
                                       TestRideStatus)
 from app.modules.users.access import scope_leads
@@ -49,6 +50,7 @@ OPPORTUNITY_STATUSES = [
     "TEST RIDE BOOKED",
     "TEST RIDE COMPLETED",
     "PLAN DROPPED",
+    "NO POTENTIAL",          # set by CRE: customer details are kept, lead isn't deleted
 ]
 
 # lookup table -> its fixed list
@@ -150,6 +152,64 @@ def check_followup_date(value: datetime | None) -> datetime | None:
         raise ValueError(f"Next Follow-up Date must be within the next "
                          f"{FOLLOWUP_MAX_DAYS} days (up to {last_day})")
     return value
+
+
+# ---------------------------------------------------------------------------
+# Returning customers — one customer per phone number
+#
+# The phone number is how the CRM recognises a returning customer (walk-in
+# form and LeadSquared import alike). Numbers arrive as "9822010001",
+# "+91 98220 10001", "09822010001" ... so they're compared on their last 10
+# digits, and new numbers are saved as plain 10 digits.
+# ---------------------------------------------------------------------------
+def normalize_phone(phone: str | None) -> str:
+    """Digits only; drops a leading 91 / 0 from an Indian mobile number."""
+    p = "".join(ch for ch in (phone or "") if ch.isdigit())
+    if len(p) == 12 and p.startswith("91"):
+        p = p[2:]
+    elif len(p) == 11 and p.startswith("0"):
+        p = p[1:]
+    return p
+
+
+def find_customer_by_phone(db: Session, phone: str | None) -> Customer | None:
+    """The existing customer with this phone number, whichever way it was
+    stored, or None."""
+    p = normalize_phone(phone)
+    if not p:
+        return None
+    candidates = {p, f"91{p}", f"+91{p}", f"0{p}", f"+91 {p}", (phone or "").strip()}
+    return (db.query(Customer).filter(Customer.phone.in_(candidates))
+            .order_by(Customer.customer_id).first())
+
+
+DETAIL_FIELDS = ("full_name", "alt_phone", "email", "city", "pincode")
+
+
+def update_customer_details(db: Session, cust: Customer, new: dict, *, source: str,
+                            enquiry_no: str | None = None) -> bool:
+    """Make `new` the customer's current details, keeping the old ones.
+
+    Only non-empty values in `new` count (a blank cell in a file never wipes
+    a saved value). If nothing actually changes, nothing is written. If
+    something does, the details as they were BEFORE are saved as one
+    CustomerDetailHistory row, then the customer is updated.
+    Returns True if the details changed. Does not commit.
+    """
+    changes = {f: v.strip() for f, v in new.items()
+               if f in DETAIL_FIELDS and isinstance(v, str) and v.strip()
+               and v.strip() != (getattr(cust, f) or "")}
+    if not changes:
+        return False
+    db.add(CustomerDetailHistory(
+        customer_id=cust.customer_id,
+        **{f: getattr(cust, f) for f in DETAIL_FIELDS},
+        replaced_by_source=source, replaced_by_enquiry_no=enquiry_no,
+        replaced_at=now_ist(),
+    ))
+    for f, v in changes.items():
+        setattr(cust, f, v)
+    return True
 
 
 def mask_phone(phone: str) -> str:

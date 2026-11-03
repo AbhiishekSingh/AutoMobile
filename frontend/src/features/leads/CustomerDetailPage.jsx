@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { Empty, Loading, fmtDate, fmtTime, fmtDateTime } from '../../components/ui'
 import QuotationForm from '../quotations/QuotationForm'
+import DocumentsSection from '../documents/DocumentsSection'
 import api from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 
@@ -20,7 +21,7 @@ function oppClass(name) {
   if (n.includes('CALL LATER')) return 'badge-amber'
   if (n.includes('RINGING') || n.includes('INCOMING OFF')) return 'badge-purple'
   if (n.includes('FALSE ENQUIRY')) return 'badge-red'
-  if (n.includes('CASUAL') || n.includes('PLAN DROPPED')) return 'badge-gray'
+  if (n.includes('CASUAL') || n.includes('PLAN DROPPED') || n.includes('NO POTENTIAL')) return 'badge-gray'
   // older / imported values (kept so history still looks right)
   if (n.includes('HOT') || n.includes('LOST')) return 'badge-red'
   if (n.includes('WARM')) return 'badge-amber'
@@ -371,6 +372,38 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
+      {/* PREVIOUS CUSTOMER DETAILS — earlier versions kept when a LeadSquared
+          import brought newer details for this phone number. The section above
+          always shows the newest (current) details. */}
+      {lead.previous_details?.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <h3>Previous Customer Details <span className="muted-note">({lead.previous_details.length}) · current details are shown above</span></h3>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Replaced On</th><th>Name</th><th>PIN Code</th><th>City</th><th>Email</th><th>Alt. Mobile</th><th>Replaced By</th></tr></thead>
+              <tbody>
+                {lead.previous_details.map((p, i) => (
+                  <tr key={i}>
+                    <td className="cell-muted">{fmtDateTime(p.replaced_at)}</td>
+                    <td className="cell-primary">{p.full_name || '—'}</td>
+                    <td>{p.pincode || '—'}</td>
+                    <td>{p.city || '—'}</td>
+                    <td>{p.email || '—'}</td>
+                    <td>{p.alt_phone || '—'}</td>
+                    <td className="cell-muted">
+                      {p.replaced_by_source === 'LEADSQUARED' ? 'LeadSquared' : (p.replaced_by_source || '—')}
+                      {p.replaced_by_enquiry_no ? ` · ${p.replaced_by_enquiry_no}` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* LEAD STATUS & FOLLOW UP INFORMATION */}
       <div className="sec-card">
         <SecHead title="Lead Status & Follow Up Information" section="status" editing={editing}
@@ -402,6 +435,9 @@ export default function CustomerDetailPage() {
                   display={lead.ageing_days || 0} value={form.ageing_days} onChange={setFld('ageing_days')} />
         </div>
       </div>
+
+      {/* CUSTOMER DOCUMENTS — KYC uploads (PBA / CRE); see features/documents */}
+      <DocumentsSection leadId={lead.lead_id} />
 
       {/* FOLLOW UP HISTORY */}
       <div className="card">

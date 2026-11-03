@@ -13,6 +13,9 @@ Current updates:
                        Code" column; separate from dealer_code)
   - user_branch table (which branches each CRE covers — set by Admin on the
                        Users page)
+  - customer_document table (KYC / customer documents uploaded by PBA)
+  - customer_detail_history table (earlier versions of a customer's details,
+                       kept when a LeadSquared import brings newer ones)
 """
 from sqlalchemy import text
 
@@ -21,9 +24,13 @@ from app.core.database import Base
 
 def apply_schema_updates(engine) -> None:
     # imported here so every model is registered before create_all runs
+    from app.modules.documents.models import CustomerDocument
+    from app.modules.leads.models import CustomerDetailHistory
     from app.modules.users.models import UserBranch
 
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE lead ADD COLUMN IF NOT EXISTS branch_code VARCHAR"))
         # checkfirst=True (the default): does nothing if the table exists
-        Base.metadata.create_all(bind=conn, tables=[UserBranch.__table__])
+        Base.metadata.create_all(bind=conn, tables=[UserBranch.__table__,
+                                                    CustomerDetailHistory.__table__,
+                                                    CustomerDocument.__table__])

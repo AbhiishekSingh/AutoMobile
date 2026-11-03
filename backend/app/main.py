@@ -14,6 +14,7 @@ from app.modules.quotations.router import router as quotations_router
 from app.modules.dashboard.router import router as dashboard_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.audit.router import router as audit_router
+from app.modules.documents.router import router as documents_router
 from app.modules.leads.service import sync_dropdown_lists
 
 app = FastAPI(title="S.K. Automobiles CRM — API")
@@ -35,6 +36,7 @@ app.include_router(quotations_router)
 app.include_router(dashboard_router)
 app.include_router(notifications_router)
 app.include_router(audit_router)
+app.include_router(documents_router)
 
 
 @app.on_event("startup")
@@ -63,4 +65,4 @@ def sync_lookups_on_startup():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok"}

@@ -90,6 +90,34 @@ class Customer(Base):
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)
 
     leads = relationship("Lead", back_populates="customer")
+    previous_details = relationship("CustomerDetailHistory", back_populates="customer",
+                                    order_by="CustomerDetailHistory.replaced_at.desc()")
+
+
+class CustomerDetailHistory(Base):
+    """Earlier versions of a customer's details.
+
+    When a LeadSquared file brings NEW details for a phone number that's
+    already in the CRM, the customer row is updated to the newest details
+    (that's what screens show as current) and the details it had BEFORE are
+    copied here, so nothing is lost. One row = one replaced version.
+    Created on startup by app/db/schema_updates.py.
+    """
+    __tablename__ = "customer_detail_history"
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("customer.customer_id"), nullable=False, index=True)
+    # the details as they were before being replaced
+    full_name = Column(String)
+    alt_phone = Column(String)
+    email = Column(String)
+    city = Column(String)
+    pincode = Column(String)
+    # what replaced them
+    replaced_by_source = Column(String)      # "LEADSQUARED"
+    replaced_by_enquiry_no = Column(String)  # enquiry no. of the row that brought the new details
+    replaced_at = Column(DateTime, default=now_ist)
+
+    customer = relationship("Customer", back_populates="previous_details")
 
 
 class Lead(Base):

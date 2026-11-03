@@ -96,6 +96,7 @@ export default function ImportPage() {
               <Stat label="Leads created" value={result.leads_created} accent="#059669" />
               <Stat label="New customers" value={result.customers_new} accent="#2563EB" />
               <Stat label="Matched customers" value={result.customers_matched} accent="#2563EB" />
+              <Stat label="Customer details updated" value={result.customer_details_updated ?? 0} accent="#2563EB" />
               <Stat label="Test rides created" value={result.test_rides_created} />
               <Stat label="Salesperson matched" value={result.salesperson_matched} accent="#059669" />
               <Stat label="Salesperson unmatched" value={result.salesperson_unmatched} accent="#D97706" />

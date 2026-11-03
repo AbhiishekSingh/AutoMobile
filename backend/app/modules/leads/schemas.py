@@ -68,8 +68,25 @@ class TestRideOut(BaseModel):
     completed: bool
 
 
+class PreviousDetails(BaseModel):
+    """An earlier version of a customer's details (newest version is the
+    customer's current details)."""
+    full_name: Optional[str] = None
+    alt_phone: Optional[str] = None
+    email: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+    replaced_by_source: Optional[str] = None
+    replaced_by_enquiry_no: Optional[str] = None
+    replaced_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class LeadDetail(BaseModel):
     lead_id: int
+    customer_id: int
     enquiry_no: str
     enquiry_date: Optional[datetime]
     enquiry_time: Optional[str]
@@ -101,6 +118,36 @@ class LeadDetail(BaseModel):
     lost_reason_id: Optional[int] = None
     followups: list[FollowupOut]
     test_rides: list[TestRideOut]
+    previous_details: list[PreviousDetails] = []
+
+
+# ---------- returning customer (walk-in form phone check) ----------
+class LookupCustomer(BaseModel):
+    customer_id: int
+    full_name: str
+    phone: str
+    alt_phone: Optional[str] = None
+    email: Optional[str] = None
+    city: Optional[str] = None
+    pincode: Optional[str] = None
+
+
+class LookupEnquiry(BaseModel):
+    lead_id: int
+    enquiry_no: str
+    enquiry_at: Optional[datetime]
+    model_name: Optional[str]
+    enquiry_stage: Optional[str]
+    opportunity_status: Optional[str]
+    assigned_to: Optional[str]
+    branch_name: Optional[str]
+
+
+class CustomerLookup(BaseModel):
+    exists: bool
+    customer: Optional[LookupCustomer] = None
+    enquiries: list[LookupEnquiry] = []          # newest first; the first one is taken over
+    previous_details: list[PreviousDetails] = []
 
 
 class LeadUpdate(BaseModel):
