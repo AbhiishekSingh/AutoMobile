@@ -22,16 +22,17 @@ export default function QuotationForm({ lead, lookups, onClose, onCreated }) {
     sales_manager_name: '',
     finance_bank_name: '',
     finance_financer_name: '',
+    discounted_price: '',      // internal only — never on the customer's quotation
+    payment_type: 'CASH',
+    down_payment: '',
+    acc_helmet: true, acc_parking_cover: true, rsa_one_year: true,
+    engine_warranty_years: 5,
   })
 
   const [inclusions, setInclusions] = useState([
     { description: 'Insurance Premium (1yr Own Damage + 5yr Third Party)', included: true },
     { description: 'RTO Road Tax & Registration', included: true },
-    { description: 'ISI Certified Helmet', included: true },
-    { description: 'RSA (Road Side Assistance)', included: true },
     { description: 'Standard Tool Kit & First Aid Kit', included: true },
-    { description: 'Parking Cover', included: true },
-    { description: '10yrs Engine Warranty (KTM 5yr + 5yr Extended Warranty)', included: true },
   ])
 
   const [emiOptions, setEmiOptions] = useState([
@@ -53,6 +54,11 @@ export default function QuotationForm({ lead, lookups, onClose, onCreated }) {
   ])
 
   const setF = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const setChk = (key) => (e) => setForm({ ...form, [key]: e.target.checked })
+  const isEmi = form.payment_type === 'EMI'
+  // amount the customer finances = offered price (else on-road price) minus the down payment
+  const base = Number(form.discounted_price || form.on_road_price || 0)
+  const financed = Math.max(0, base - Number(form.down_payment || 0))
 
   const updateInclusion = (idx, field, value) => {
     const next = [...inclusions]
@@ -86,6 +92,9 @@ export default function QuotationForm({ lead, lookups, onClose, onCreated }) {
         ...form,
         model_id: form.model_id || null,
         on_road_price: Number(form.on_road_price),
+        discounted_price: form.discounted_price === '' ? null : Number(form.discounted_price),
+        down_payment: form.down_payment === '' ? null : Number(form.down_payment),
+        engine_warranty_years: Number(form.engine_warranty_years),
       }
       const { data: quotation } = await api.post(`/leads/${lead.lead_id}/quotations`, payload)
 
@@ -94,8 +103,8 @@ export default function QuotationForm({ lead, lookups, onClose, onCreated }) {
         inclusions: inclusions.map((inc, i) => ({ ...inc, sort_order: i })),
       })
 
-      // sync finance / EMI scheme options
-      await api.patch(`/quotations/${quotation.quotation_id}/emi`, {
+      // sync finance / EMI scheme options (cash needs none)
+      if (isEmi) await api.patch(`/quotations/${quotation.quotation_id}/emi`, {
         emi_options: emiOptions
           .filter((e) => e.tenure_months !== '' && e.tenure_months !== null)
           .map((e) => ({
@@ -147,6 +156,14 @@ export default function QuotationForm({ lead, lookups, onClose, onCreated }) {
               <input className="input" value={form.color} onChange={setF('color')} /></div>
             <div className="field"><label>On Road Price (₹)</label>
               <input className="input" type="number" value={form.on_road_price} onChange={setF('on_road_price')} required /></div>
+            <div className="field"><label>Discount / Offered Price (₹) <span style={{ color: '#B45309', fontWeight: 400 }}>— internal, not shown to customer</span></label>
+              <input className="input" type="number" min="0" value={form.discounted_price} onChange={setF('discounted_price')} /></div>
+            <div className="field"><label>Payment</label>
+              <select className="input" value={form.payment_type} onChange={setF('payment_type')}>
+                <option value="CASH">Cash</option><option value="EMI">EMI / Finance</option>
+              </select></div>
+            <div className="field"><label>Down Payment (₹)</label>
+              <input className="input" type="number" min="0" value={form.down_payment} onChange={setF('down_payment')} /></div>
             <div className="field"><label>HSPR Registration Type</label>
               <select className="input" value={form.hspr_registration_type} onChange={setF('hspr_registration_type')}>
                 <option value="REGULAR">Regular No.</option>
@@ -159,6 +176,19 @@ export default function QuotationForm({ lead, lookups, onClose, onCreated }) {
               <input className="input" value={form.finance_bank_name} onChange={setF('finance_bank_name')} /></div>
             <div className="field"><label>Financer Name</label>
               <input className="input" value={form.finance_financer_name} onChange={setF('finance_financer_name')} /></div>
+          </div>
+
+          <div style={{ marginTop: 18 }}>
+            <label style={{ fontWeight: 600 }}>Accessories &amp; Warranty provided by us</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginTop: 8, alignItems: 'center', fontSize: 14 }}>
+              <label style={{ display: 'flex', gap: 6 }}><input type="checkbox" checked={form.acc_helmet} onChange={setChk('acc_helmet')} /> Studio Helmet</label>
+              <label style={{ display: 'flex', gap: 6 }}><input type="checkbox" checked={form.acc_parking_cover} onChange={setChk('acc_parking_cover')} /> Parking Cover</label>
+              <label style={{ display: 'flex', gap: 6 }}><input type="checkbox" checked={form.rsa_one_year} onChange={setChk('rsa_one_year')} /> RSA 1 Year</label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>Engine Warranty
+                <select className="input" style={{ width: 'auto' }} value={form.engine_warranty_years} onChange={setF('engine_warranty_years')}>
+                  <option value={5}>5 years</option><option value={10}>10 years</option>
+                </select></label>
+            </div>
           </div>
 
           <div style={{ marginTop: 18 }}>
@@ -180,7 +210,7 @@ export default function QuotationForm({ lead, lookups, onClose, onCreated }) {
             ))}
           </div>
 
-          <div style={{ marginTop: 18 }}>
+          {isEmi && <div style={{ marginTop: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <label style={{ fontWeight: 600 }}>Finance / EMI Scheme Options</label>
               <button type="button" className="btn btn-outline" onClick={addEmi}>+ Add Tenure</button>
@@ -201,7 +231,11 @@ export default function QuotationForm({ lead, lookups, onClose, onCreated }) {
                 <button type="button" className="btn btn-outline" onClick={() => removeEmi(i)}>✕</button>
               </div>
             ))}
-          </div>
+            <div style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
+              Amount to be financed: <b>₹ {financed.toLocaleString('en-IN')}</b> (offered price, or on-road price, minus down payment).
+              Type the ROI for each tenure; leave Monthly EMI empty and it is calculated automatically.
+            </div>
+          </div>}
 
           <div style={{ marginTop: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

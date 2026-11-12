@@ -1,13 +1,22 @@
 // Small shared presentational helpers used across the PBA screens.
 
+// SLA badge. `state` (from the server, worked out from the clock) gives the
+// exact label; `flag` is only the colour group, used when no state is sent.
+const SLA_STATE = {
+  COMPLETED:   { cls: 'badge-green', label: 'On time' },
+  LATE:        { cls: 'badge-red',   label: 'Late' },
+  WITHIN_TIME: { cls: 'badge-amber', label: 'Within 3 hrs' },
+  PENDING:     { cls: 'badge-amber', label: 'Pending' },
+  OVERDUE:     { cls: 'badge-red',   label: 'Overdue' },
+}
 const SLA_MAP = {
   GREEN: { cls: 'badge-green', label: 'On time' },
   YELLOW: { cls: 'badge-amber', label: 'Pending' },
-  RED: { cls: 'badge-red', label: 'Overdue' },
+  RED: { cls: 'badge-red', label: 'Late / Overdue' },
 }
 
-export function Sla({ flag }) {
-  const s = SLA_MAP[flag] || SLA_MAP.YELLOW
+export function Sla({ flag, state }) {
+  const s = SLA_STATE[state] || SLA_MAP[flag] || SLA_MAP.YELLOW
   return <span className={`badge ${s.cls}`}>{s.label}</span>
 }
 

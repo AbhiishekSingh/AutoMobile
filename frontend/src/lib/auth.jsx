@@ -5,12 +5,14 @@ const AuthContext = createContext(null)
 
 // Where each role lands after login
 export const ROLE_HOME = {
-  OWNER: '/owner',
+  OWNER: '/owner/dashboard',
   GM: '/gm',
   PBA: '/dashboard',
   CRE: '/dashboard',   // same screens as PBA, scoped to the CRE's branches
   RTO: '/rto',
+  INSURANCE: '/insurance',
   ADMIN: '/admin',
+  BRANCH: '/branch',   // shared branch login (PBA name + PIN picker comes next)
 }
 
 export function AuthProvider({ children }) {
@@ -27,6 +29,23 @@ export function AuthProvider({ children }) {
     localStorage.setItem('user', JSON.stringify(data.user))
     setUser(data.user)
     return data.user
+  }
+
+  function store(data) {
+    localStorage.setItem('access_token', data.access_token)
+    localStorage.setItem('refresh_token', data.refresh_token)
+    localStorage.setItem('user', JSON.stringify(data.user))
+    setUser(data.user)
+    return data.user
+  }
+
+  // Branch login: choose which PBA is working (name + PIN), or go back to the picker.
+  async function selectPba(userId, pin) {
+    const { data } = await api.post('/branch/select', { user_id: userId, pin })
+    return store(data)
+  }
+  async function switchPba() {
+    try { const { data } = await api.post('/branch/lock'); return store(data) } catch (_) { logout() }
   }
 
   function logout() {
@@ -46,7 +65,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, selectPba, switchPba }}>
       {children}
     </AuthContext.Provider>
   )

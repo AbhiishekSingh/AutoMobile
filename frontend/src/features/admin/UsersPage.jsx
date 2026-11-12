@@ -3,10 +3,11 @@ import Layout from '../../components/Layout'
 import api from '../../lib/api'
 import { CRE_MAX_BRANCHES } from '../../lib/roles'
 
-const ROLES = ['OWNER', 'GM', 'PBA', 'CRE', 'RTO', 'ADMIN']
+const ROLES = ['OWNER', 'GM', 'PBA', 'CRE', 'RTO', 'INSURANCE', 'ADMIN', 'BRANCH']
+const ROLE_LABEL = { BRANCH: 'BRANCH (shared branch login)' }
 // branch_id: one branch (every role except CRE)
 // branch_ids: the 1-2 branches a CRE covers
-const EMPTY = { login_id: '', full_name: '', email: '', password: '', role: 'PBA', branch_id: '', branch_ids: [] }
+const EMPTY = { login_id: '', full_name: '', email: '', phone: '', password: '', role: 'PBA', login_enabled: true, pin: '', ls_email: '', ls_name: '', branch_id: '', branch_ids: [] }
 
 export default function Users() {
   const [users, setUsers] = useState([])
@@ -28,6 +29,8 @@ export default function Users() {
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
   const isCreForm = form.role === 'CRE'
+  const isPba = form.role === 'PBA'
+  const profile = isPba && !form.login_enabled     // PBA who works under the branch login
 
   // CRE branch checkboxes: tick up to CRE_MAX_BRANCHES
   function toggleCreBranch(id) {
@@ -49,13 +52,20 @@ export default function Users() {
       setMsg('Please tick at least one branch for this CRE.')
       return
     }
+    if (form.role === 'BRANCH' && !form.branch_id) { setMsg('A branch login needs its branch.'); return }
+    if (profile && !editingId && !/^\d{4,6}$/.test(form.pin || '')) { setMsg('Give the PBA a PIN of 4 to 6 digits.'); return }
+    if (form.pin && !/^\d{4,6}$/.test(form.pin)) { setMsg('The PIN must be 4 to 6 digits.'); return }
     try {
       if (editingId) {
         const { password, login_id, ...rest } = payloadFrom(form)
+        if (!rest.pin) delete rest.pin
         await api.put(`/users/${editingId}`, rest)
         setMsg('User updated.')
       } else {
-        await api.post('/users', payloadFrom(form))
+        const body = payloadFrom(form)
+        if (!body.pin) delete body.pin
+        if (profile) delete body.password
+        await api.post('/users', body)
         setMsg('User created.')
       }
       setForm(EMPTY); setEditingId(null); load()
@@ -66,12 +76,19 @@ export default function Users() {
 
   function edit(u) {
     setEditingId(u.user_id)
-    setForm({ ...EMPTY, ...u, password: '', branch_id: u.branch_id ?? '', branch_ids: u.branch_ids || [] })
+    setForm({ ...EMPTY, ...u, password: '', pin: '', ls_email: u.ls_email || '', ls_name: u.ls_name || '', branch_id: u.branch_id ?? '', branch_ids: u.branch_ids || [] })
   }
 
   async function toggle(u) {
     const path = u.is_active ? 'deactivate' : 'activate'
     await api.patch(`/users/${u.user_id}/${path}`); load()
+  }
+
+  async function setPin(u) {
+    const pin = prompt(`New 4–6 digit PIN for ${u.full_name}:`)
+    if (!pin) return
+    try { await api.post(`/users/${u.user_id}/set-pin`, { pin }); setMsg(`PIN set for ${u.full_name}.`); load() }
+    catch (err) { setMsg(err.response?.data?.detail || 'Could not set the PIN.') }
   }
 
   async function resetPw(u) {
@@ -93,14 +110,34 @@ export default function Users() {
               <input className="input" value={form.full_name} onChange={set('full_name')} required /></div>
             <div className="field"><label>Email</label>
               <input className="input" value={form.email || ''} onChange={set('email')} /></div>
-            {!editingId && (
+            <div className="field"><label>Mobile (WhatsApp alerts)</label>
+              <input className="input" value={form.phone || ''} onChange={set('phone')} placeholder="10-digit number" /></div>
+            {!editingId && !profile && (
               <div className="field"><label>Password</label>
                 <input className="input" type="password" value={form.password} onChange={set('password')} required /></div>
             )}
             <div className="field"><label>Role</label>
               <select className="input" value={form.role} onChange={set('role')}>
-                {ROLES.map((r) => <option key={r}>{r}</option>)}
+                {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r] || r}</option>)}
               </select></div>
+            {isPba && (
+              <div className="field"><label>How does this PBA sign in?</label>
+                <select className="input" value={form.login_enabled ? 'own' : 'branch'}
+                  onChange={(e) => setForm({ ...form, login_enabled: e.target.value === 'own' })}>
+                  <option value="own">Own login ID and password</option>
+                  <option value="branch">Under the branch login (name + PIN only)</option>
+                </select>
+                {profile && <div className="muted-note" style={{ fontSize: 11.5 }}>No separate login. This PBA signs in with the branch account and picks their name.</div>}
+              </div>)}
+            {isPba && (
+              <div className="field"><label>PIN {profile ? '*' : ''} <span className="muted-note">(4–6 digits{editingId ? ', leave blank to keep' : ''})</span></label>
+                <input className="input" inputMode="numeric" maxLength={6} value={form.pin || ''} onChange={set('pin')} autoComplete="off" /></div>)}
+            {isPba && (<>
+              <div className="field"><label>LeadSquared email <span className="muted-note">(as it appears in the export, if different)</span></label>
+                <input className="input" value={form.ls_email || ''} onChange={set('ls_email')} placeholder="salesperson email in LeadSquared" /></div>
+              <div className="field"><label>LeadSquared name <span className="muted-note">(if different)</span></label>
+                <input className="input" value={form.ls_name || ''} onChange={set('ls_name')} /></div>
+            </>)}
             {isCreForm ? (
               <div className="field">
                 <label>Branches covered * <span className="muted-note">(1–{CRE_MAX_BRANCHES})</span></label>
@@ -120,7 +157,7 @@ export default function Users() {
                 </div>
               </div>
             ) : (
-              <div className="field"><label>Branch</label>
+              <div className="field"><label>Branch{form.role === 'BRANCH' || profile ? ' *' : ''}</label>
                 <select className="input" value={form.branch_id || ''} onChange={set('branch_id')}>
                   <option value="">— No branch —</option>
                   {branches.map((b) => (
@@ -147,7 +184,7 @@ export default function Users() {
                   <tr key={u.user_id}>
                     <td className="cell-muted">{u.login_id}</td>
                     <td className="cell-primary">{u.full_name}</td>
-                    <td>{u.role}</td>
+                    <td>{u.role}{u.role === 'PBA' && !u.login_enabled && <div><span className="badge badge-amber">Under branch login{u.has_pin ? '' : ' · no PIN'}</span></div>}</td>
                     <td>{u.role === 'CRE'
                       ? (u.branch_ids?.length ? u.branch_ids.map(branchName).join(', ') : <span className="badge badge-amber">No branches</span>)
                       : branchName(u.branch_id)}</td>
@@ -156,7 +193,10 @@ export default function Users() {
                       : <span className="badge badge-gray">Inactive</span>}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn btn-outline btn-sm" onClick={() => edit(u)}>Edit</button>{' '}
-                      <button className="btn btn-outline btn-sm" onClick={() => resetPw(u)}>Reset PW</button>{' '}
+                      {u.login_enabled
+                        ? <><button className="btn btn-outline btn-sm" onClick={() => resetPw(u)}>Reset PW</button>{' '}</>
+                        : null}
+                      {u.role === 'PBA' && <><button className="btn btn-outline btn-sm" onClick={() => setPin(u)}>{u.has_pin ? 'Reset PIN' : 'Set PIN'}</button>{' '}</>}
                       <button className="btn btn-outline btn-sm" onClick={() => toggle(u)}>
                         {u.is_active ? 'Deactivate' : 'Activate'}</button>
                     </td>

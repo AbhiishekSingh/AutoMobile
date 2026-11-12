@@ -11,6 +11,8 @@ import LostReasonsChart from './LostReasonsChart'
 import QuotationFunnelChart from './QuotationFunnelChart'
 import TestRidesChart from './TestRidesChart'
 import RatioGaugesChart from './RatioGaugesChart'
+import StockCard from '../stock/StockCard'
+import FinalReviewBanner from '../cre/FinalReviewBanner'
 
 const TREND_TILES = [
   {
@@ -173,6 +175,7 @@ export default function DashboardPage() {
             sub={branch.show
               ? (branch.branchName ? `${branch.branchName} · trends & activity` : 'Trends & activity at a glance')
               : 'Trends & activity at a glance'}>
+      <FinalReviewBanner />
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginBottom: 16 }}>
         <BranchFilter branch={branch} />
         <select className="input" style={{ maxWidth: 180 }} value={period}
@@ -286,6 +289,8 @@ export default function DashboardPage() {
             />
           </div>
 
+          <StockCard params={branch.params} />
+
           {/* ── Charts row ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 5 }}>
             {/* ✅ FIX: show a mini spinner inside the card while chartData is loading */}
@@ -369,4 +374,4 @@ export default function DashboardPage() {
       )}
     </Layout>
   )
-}
+}

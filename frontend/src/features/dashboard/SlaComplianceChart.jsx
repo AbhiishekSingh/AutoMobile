@@ -11,7 +11,7 @@ const COLORS = {
 const LABELS = {
   green: 'On Time',
   yellow: 'Pending',
-  red: 'Overdue',
+  red: 'Late / Overdue',
 }
 
 const CustomTooltip = ({ active, payload }) => {

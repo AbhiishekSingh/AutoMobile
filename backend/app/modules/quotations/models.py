@@ -25,12 +25,10 @@ class QuotationStatus(str, enum.Enum):
 DEFAULT_INCLUSIONS = [
     "Insurance Premium (1yr Own Damage + 5yr Third Party)",
     "RTO Road Tax & Registration",
-    "ISI Certified Helmet",
-    "RSA (Road Side Assistance)",
     "Standard Tool Kit & First Aid Kit",
-    "Parking Cover",
-    "10yrs Engine Warranty (KTM 5yr + 5yr Extended Warranty)",
 ]
+# Helmet, parking cover, RSA and the 5/10-year engine warranty are now their own
+# checkboxes on the quotation (see the acc_* / engine_warranty_years columns).
 
 DEFAULT_DOCUMENTS = [
     "PAN CARD", "AADHAR CARD (linked to mobile no.)", "ELECTRICITY BILL",
@@ -65,6 +63,18 @@ class Quotation(Base):
 
     finance_bank_name = Column(String)
     finance_financer_name = Column(String)
+
+    # ---- pricing / payment choices ----
+    # Discount / offered price: for the PBA and accounts only — NEVER printed on the
+    # customer's quotation PDF, e-mail or WhatsApp.
+    discounted_price = Column(Numeric(12, 2))
+    payment_type = Column(String, default="CASH")        # CASH or EMI
+    down_payment = Column(Numeric(12, 2))
+    # ---- what we give with the bike (tick boxes) ----
+    acc_helmet = Column(Boolean)                          # Studio Helmet
+    acc_parking_cover = Column(Boolean)
+    rsa_one_year = Column(Boolean)                        # RSA 1 year
+    engine_warranty_years = Column(Integer)               # 5 or 10 (empty on old quotations)
 
     status = Column(Enum(QuotationStatus), default=QuotationStatus.DRAFT)
     valid_until = Column(DateTime)

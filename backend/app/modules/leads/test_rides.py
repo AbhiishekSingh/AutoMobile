@@ -39,7 +39,7 @@ COMPLETE_EARLY_GRACE = timedelta(minutes=15)   # may mark done this long before 
 PAST_GRACE = timedelta(minutes=5)              # form opened a few minutes ago is fine
 
 OPEN = (TestRideStatus.BOOKED, TestRideStatus.RESCHEDULED)
-BOUGHT_STAGES = (EnquiryStage.BOOKED, EnquiryStage.INVOICED)
+from app.modules.leads.stages import BOUGHT_STAGES
 BOUGHT_STATUSES = ("BOOKING DONE", "DELIVERED")
 
 

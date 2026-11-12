@@ -2,8 +2,8 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import (Boolean, Column, DateTime, Enum, ForeignKey, Integer,
-                        String, Text)
+from sqlalchemy import (Boolean, Column, DateTime, Enum, ForeignKey, Index,
+                        Integer, String, Text)
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base, now_ist
@@ -56,11 +56,16 @@ class LeadSource(str, enum.Enum):
 
 
 class EnquiryStage(str, enum.Enum):
+    """Where a customer is in the journey. Do NOT assign this field directly —
+    go through app/modules/leads/stages.py (change_stage), which checks the
+    order and is the one place stage changes are recorded."""
     OPEN = "OPEN"
-    QUOTED = "QUOTED"
-    CLOSED = "CLOSED"
     BOOKED = "BOOKED"
+    INSURANCE_DONE = "INSURANCE_DONE"
+    RTO_DONE = "RTO_DONE"
     INVOICED = "INVOICED"
+    DELIVERED = "DELIVERED"
+    CLOSED = "CLOSED"
 
 
 class SLAFlag(str, enum.Enum):
@@ -143,6 +148,12 @@ class Lead(Base):
     next_followup_at = Column(DateTime)
     ageing_days = Column(Integer, default=0)
     salesperson_email = Column(String)
+    # call details the PBA must give after an enquiry call (YES / NO / PLANNED)
+    showroom_visit = Column(String)
+    test_ride_interest = Column(String)
+    # "Call Later": the PBA is reminded 1 hour after it was set (see leads/callbacks.py)
+    callback_remind_at = Column(DateTime)
+    callback_notified = Column(Boolean, default=False)
     dealer_code = Column(String)     # dealership code, same for every branch (e.g. 12746)
     branch_code = Column(String)     # showroom code, per branch (e.g. C12746, A12746)
     created_at = Column(DateTime, default=now_ist)
@@ -159,6 +170,20 @@ class Lead(Base):
                              order_by="LeadFollowup.created_at.desc()")
     test_rides = relationship("TestRide", back_populates="lead",
                               order_by="TestRide.created_at.desc()")
+
+
+class LeadModelInterest(Base):
+    """A customer can enquire about SEVERAL models (a walk-in especially). One row per
+    model + colour. The first row is also kept on the lead (model_id / color) so the
+    list pages, quotation and reports keep working unchanged."""
+    __tablename__ = "lead_model_interest"
+    id = Column(Integer, primary_key=True)
+    lead_id = Column(Integer, ForeignKey("lead.lead_id"), nullable=False, index=True)
+    model_id = Column(Integer, ForeignKey("bike_model.id"), nullable=False)
+    color = Column(String)
+    created_at = Column(DateTime, default=now_ist)
+
+    model = relationship("BikeModel")
 
 
 class LeadFollowup(Base):
@@ -195,3 +220,28 @@ class TestRide(Base):
 
     lead = relationship("Lead", back_populates="test_rides")
     model = relationship("BikeModel")
+
+
+class StageHistory(Base):
+    """One row each time a lead's Enquiry Stage REALLY changes (never for a
+    re-save of the same stage, and never for edits to remarks/phone/etc.).
+
+    Written only by leads/stages.py (change_stage), so it can't drift from the
+    stage itself. Rows are only ever added — never edited or deleted.
+    Stages are stored as plain text (not a database enum) so adding a stage
+    later needs no database change. changed_by_user_id is empty when the
+    system moved the lead (e.g. a payment was saved).
+    """
+    __tablename__ = "lead_stage_history"
+    id = Column(Integer, primary_key=True)
+    lead_id = Column(Integer, ForeignKey("lead.lead_id"), nullable=False)
+    from_stage = Column(String)
+    to_stage = Column(String, nullable=False)
+    changed_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
+    reason = Column(String)
+    changed_at = Column(DateTime, default=now_ist, nullable=False)
+
+    changed_by = relationship("AppUser")
+
+    # "show this lead's history, newest first"
+    __table_args__ = (Index("ix_stage_history_lead_time", "lead_id", "changed_at"),)

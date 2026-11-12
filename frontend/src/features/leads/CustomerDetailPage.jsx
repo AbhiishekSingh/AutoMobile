@@ -4,8 +4,14 @@ import Layout from '../../components/Layout'
 import { Empty, Loading, fmtDate, fmtTime, fmtDateTime } from '../../components/ui'
 import QuotationForm from '../quotations/QuotationForm'
 import DocumentsSection from '../documents/DocumentsSection'
+import PaymentSection from '../payments/PaymentSection'
+import HandoffPanel from '../handoffs/HandoffPanel'
+import WhatsAppPanel from '../whatsapp/WhatsAppPanel'
+import AssignmentCard from './AssignmentCard'
+import FinalReviewCard from '../cre/FinalReviewCard'
 import api from '../../lib/api'
 import { useAuth } from '../../lib/auth'
+import { isSales } from '../../lib/roles'
 
 // ---- icon helper ----
 function Ico({ src, w = 16, h = 16, alt = '' }) {
@@ -131,16 +137,23 @@ const quotationStatusClass = (s) => ({
   EXPIRED: 'badge-amber', REJECTED: 'badge-red',
 }[s] || 'badge-gray')
 
-const EMPTY_FU = { remark: '', contacted: true, disposition_id: '', opportunity_status_id: '', next_followup_at: '' }
+const EMPTY_FU = { remark: '', contacted: true, disposition_id: '', opportunity_status_id: '', next_followup_at: '',
+                   model_id: '', color: '', showroom_visit: '', test_ride_interest: '' }
+// Ringing / Switch Off / Call Later never reach an enquiry conversation, so they need no call details
+const NO_DETAILS = ['RINGING', 'SWITCH OFF', 'CALL LATER']
 const EMPTY_TR = { model_id: '', color: '', status: 'BOOKED', scheduled_at: '', slot: '', preferred_location: 'Showroom' }
 
-const STAGES = ['OPEN', 'CLOSED', 'BOOKED', 'INVOICED']
+// Stage is moved by the system (payment, insurance, RTO, invoice, delivery) —
+// see app/modules/leads/stages.py. A person may only close / reopen a lead, and
+// only while it is still OPEN or CLOSED; once booked, the stage is read-only.
+const STAGES = ['OPEN', 'CLOSED']
+const MANUAL_STAGE = (stage) => STAGES.includes(stage)
 const SECTION_FIELDS = {
   enquiry: ['enquiry_at', 'first_contact_at', 'dealer_code', 'branch_code', 'salesperson_email', 'mode_id'],
   vehicle: ['full_name', 'phone', 'pincode', 'model_id', 'color', 'sku_code'],
-  status: ['enquiry_stage', 'opportunity_status_id', 'disposition_id', 'lost_reason_id', 'next_followup_at', 'ageing_days'],
+  status: ['enquiry_stage', 'opportunity_status_id', 'disposition_id', 'lost_reason_id', 'next_followup_at'],
 }
-const NUMERIC = new Set(['mode_id', 'model_id', 'opportunity_status_id', 'disposition_id', 'lost_reason_id', 'ageing_days'])
+const NUMERIC = new Set(['mode_id', 'model_id', 'opportunity_status_id', 'disposition_id', 'lost_reason_id'])
 
 export default function CustomerDetailPage() {
   const { id } = useParams()
@@ -161,6 +174,8 @@ export default function CustomerDetailPage() {
   const [trBusy, setTrBusy] = useState(null)        // id of the row whose button is working
   const [showQuotationForm, setShowQuotationForm] = useState(false)
   const [quotations, setQuotations] = useState(null)
+  const [mods, setMods] = useState(null)        // models-enquired editor: null = not editing
+  const [stageHistory, setStageHistory] = useState(null)   // every real stage change, newest first
 
   // Change history — Owner/GM/Admin only, matching the backend's VIEW_ROLES.
   const canViewHistory = ['OWNER', 'GM', 'ADMIN'].includes(user?.role)
@@ -172,6 +187,9 @@ export default function CustomerDetailPage() {
   }
   function loadQuotations() {
     api.get(`/leads/${id}/quotations`).then((r) => setQuotations(r.data)).catch(() => setQuotations([]))
+  }
+  function loadStageHistory() {
+    api.get(`/leads/${id}/stage-history`).then((r) => setStageHistory(r.data)).catch(() => setStageHistory([]))
   }
   function loadHistory(customerId) {
     if (!canViewHistory) return
@@ -187,6 +205,7 @@ export default function CustomerDetailPage() {
   useEffect(() => {
     load()
     loadQuotations()
+    loadStageHistory()
     api.get('/lookups').then((r) => setLookups(r.data)).catch(() => {})
   }, [id])
   useEffect(() => {
@@ -204,7 +223,7 @@ export default function CustomerDetailPage() {
       model_id: lead.model_id || '', color: lead.color || '', sku_code: lead.sku_code || '',
       enquiry_stage: lead.enquiry_stage || '', opportunity_status_id: lead.opportunity_status_id || '',
       disposition_id: lead.disposition_id || '', lost_reason_id: lead.lost_reason_id || '',
-      next_followup_at: toInput(lead.next_followup_at), ageing_days: lead.ageing_days ?? '',
+      next_followup_at: toInput(lead.next_followup_at),
     })
     setEditing(section); setMsg('')
   }
@@ -218,6 +237,7 @@ export default function CustomerDetailPage() {
     }
     const payload = {}
     for (const k of keys) {
+      if (k === 'enquiry_stage' && !MANUAL_STAGE(lead.enquiry_stage)) continue   // system-owned
       let v = form[k]
       if (NUMERIC.has(k)) v = v === '' || v == null ? null : Number(v)
       else v = v === '' ? null : v
@@ -225,7 +245,7 @@ export default function CustomerDetailPage() {
     }
     try {
       await api.patch(`/leads/${id}`, payload)
-      setEditing(null); setMsg('Changes saved.'); load()
+      setEditing(null); setMsg('Changes saved.'); load(); loadStageHistory()
       if (lead?.customer_id) loadHistory(lead.customer_id)
     } catch (e) {
       setMsg(e.response?.data?.detail || 'Could not save changes.')
@@ -235,6 +255,12 @@ export default function CustomerDetailPage() {
   // follow-up + test-ride (unchanged behaviour)
   const setFuF = (k) => (e) => setFu({ ...fu, [k]: e.target.value })
   const setTrF = (k) => (e) => setTr({ ...tr, [k]: e.target.value })
+  async function saveModels() {
+    const rows = mods.filter((m) => m.model_id).map((m) => ({ model_id: Number(m.model_id), color: m.color || null }))
+    if (!rows.length) { setMsg('Add at least one model.'); return }
+    try { await api.put(`/leads/${id}/models`, rows); setMods(null); setMsg('Models updated.'); load() }
+    catch (e2) { setMsg(e2.response?.data?.detail || 'Could not save the models.') }
+  }
   async function addFollowup(e) {
     e.preventDefault(); setMsg('')
     const fuErr = followupError(fu.next_followup_at)
@@ -245,6 +271,8 @@ export default function CustomerDetailPage() {
         disposition_id: fu.disposition_id ? Number(fu.disposition_id) : null,
         opportunity_status_id: fu.opportunity_status_id ? Number(fu.opportunity_status_id) : null,
         next_followup_at: fu.next_followup_at || null,
+        model_id: fu.model_id ? Number(fu.model_id) : null, color: fu.color || null,
+        showroom_visit: fu.showroom_visit || null, test_ride_interest: fu.test_ride_interest || null,
       })
       setFu(EMPTY_FU); setMsg('Follow-up added.'); load()
     } catch (e2) { setMsg(e2.response?.data?.detail || 'Could not add follow-up.') }
@@ -315,6 +343,9 @@ export default function CustomerDetailPage() {
   const dispOptions = withOld(lookups?.dispositions, lead.disposition_id, lead.disposition)
   const latestTr = lead.test_rides[0]
   const anyCompleted = lead.test_rides.some((t) => t.completed)
+  const fuDispName = (lookups?.dispositions || []).find((d) => String(d.id) === String(fu.disposition_id))?.name
+  const needsDetails = (fu.contacted === true || fu.contacted === 'true') &&
+    !(fuDispName && NO_DETAILS.includes(fuDispName.toUpperCase().trim()))
   const lastFu = lead.followups[0]
   const contacted = !!lead.first_contact_at
 
@@ -322,6 +353,9 @@ export default function CustomerDetailPage() {
     <Layout title="CUSTOMER DETAILS" sub="View & edit complete information of the customer"
             back={{ label: 'Back to Leads', onClick: () => nav('/leads') }}>
 
+      {lead.view_only && <div className="hint" style={{ marginBottom: 14, background: '#fff4d6', color: '#7a5a00' }}>View only. This customer belongs to {lead.salesperson_name || 'another PBA'}. You can look but not change anything.</div>}
+      {!lead.view_only && <AssignmentCard lead={lead} onChanged={load} />}
+      {['DELIVERED', 'CLOSED'].includes(lead.enquiry_stage) && <FinalReviewCard leadId={lead.lead_id} onChanged={load} />}
       {msg && <div className="hint" style={{ marginBottom: 14 }}>{msg}</div>}
 
       {/* ENQUIRY INFORMATION */}
@@ -409,9 +443,10 @@ export default function CustomerDetailPage() {
         <SecHead title="Lead Status & Follow Up Information" section="status" editing={editing}
                  onEdit={startEdit} onSave={saveSection} onCancel={() => setEditing(null)} />
         <div className="field-grid">
-          <EField icon={<Ico src="leadStatus/01-enquiry-stage.png" w={20} h={20} alt="flag" />} label="Enquiry Stage" editing={ed('status')}
+          <EField icon={<Ico src="leadStatus/01-enquiry-stage.png" w={20} h={20} alt="flag" />} label="Enquiry Stage" editing={ed('status') && MANUAL_STAGE(lead.enquiry_stage)}
                   options={STAGES.map((s) => ({ id: s, name: s }))}
-                  display={<Badge name={lead.enquiry_stage} />} value={form.enquiry_stage} onChange={setFld('enquiry_stage')} />
+                  display={<><Badge name={lead.enquiry_stage} />{!MANUAL_STAGE(lead.enquiry_stage) &&
+                    <span className="muted-note" style={{ marginLeft: 8 }}>updated by the system</span>}</>} value={form.enquiry_stage} onChange={setFld('enquiry_stage')} />
           <EField icon={<Ico src="leadStatus/02-opportunity-status.png" w={20} h={20} alt="check" />} label="Opportunity Status" editing={ed('status')} options={oppOptions}
                   display={<Badge name={lead.opportunity_status} />} value={form.opportunity_status_id} onChange={setFld('opportunity_status_id')} />
           <EField icon={<Ico src="leadStatus/03-follow-up-dispositions.png" w={20} h={20} alt="phone-call" />} label="Follow Up Dispositions" editing={ed('status')} options={dispOptions}
@@ -431,12 +466,42 @@ export default function CustomerDetailPage() {
           <EField icon={<Ico src="leadStatus/11-test-ride-booking-date.png" w={20} h={20} alt="calendar" />} label="Test Ride Booking Date" editing={false} display={fmtDateTime(latestTr?.scheduled_at)} />
           <EField icon={<Ico src="leadStatus/12-test-ride-slot.png" w={20} h={20} alt="slot" />} label="Test Ride Slot" editing={false} display={latestTr?.slot} />
           <EField icon={<Ico src="leadStatus/13-test-ride-location.png" w={20} h={20} alt="location" />} label="Test Ride Location" editing={false} display={latestTr?.preferred_location} />
-          <EField icon={<Ico src="leadStatus/14-ageing-days.png" w={20} h={20} alt="hourglass" />} label="Ageing Days" editing={ed('status')} type="number"
-                  display={lead.ageing_days || 0} value={form.ageing_days} onChange={setFld('ageing_days')} />
+          <EField icon={<Ico src="leadStatus/14-ageing-days.png" w={20} h={20} alt="hourglass" />} label="Ageing Days" editing={false}
+                  display={lead.ageing_days || 0} />
         </div>
       </div>
 
+      {/* STAGE HISTORY — one row per real stage change (app/modules/leads/stages.py) */}
+      <div className="card">
+        <div className="card-header"><h3>Stage History <span className="muted-note">({stageHistory?.length ?? 0})</span></h3></div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Date &amp; Time</th><th>From</th><th>To</th><th>Done By</th><th>Reason</th></tr></thead>
+            <tbody>
+              {(stageHistory || []).map((h) => (
+                <tr key={h.id}>
+                  <td className="cell-muted">{fmtDateTime(h.changed_at)}</td>
+                  <td>{h.from_stage || '—'}</td>
+                  <td><b>{h.to_stage}</b></td>
+                  <td>{h.changed_by}</td>
+                  <td>{h.reason || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {stageHistory && stageHistory.length === 0 && <Empty>No stage changes yet.</Empty>}
+        </div>
+      </div>
+
+      {/* BOOKING & PAYMENT — appears at BOOKING DONE; first payment sets the stage to Booked */}
+      <PaymentSection leadId={lead.lead_id} opportunityStatus={lead.opportunity_status}
+                      onChanged={() => { load(); loadStageHistory() }} />
+
+      {/* INSURANCE → RTO → OWNER APPROVAL → ATW */}
+      <HandoffPanel leadId={lead.lead_id} onChanged={() => { load(); loadStageHistory() }} />
+
       {/* CUSTOMER DOCUMENTS — KYC uploads (PBA / CRE); see features/documents */}
+      <WhatsAppPanel leadId={lead.lead_id} />
       <DocumentsSection leadId={lead.lead_id} />
 
       {/* FOLLOW UP HISTORY */}
@@ -490,6 +555,43 @@ export default function CustomerDetailPage() {
         </div>
       )}
 
+      {/* MODELS ENQUIRED — a customer can ask about several models; the first is the main one */}
+      <div className="card">
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3>Models Enquired <span className="muted-note">({(lead.models || []).length})</span></h3>
+          {mods === null && isSales(user) && <button className="btn btn-outline btn-sm"
+            onClick={() => setMods((lead.models || []).map((m) => ({ model_id: m.model_id, color: m.color || '' })).concat((lead.models || []).length ? [] : [{ model_id: '', color: '' }]))}>Edit</button>}
+        </div>
+        <div className="card-pad">
+          {mods === null ? (
+            (lead.models || []).length === 0 ? <Empty>No model recorded yet.</Empty> : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {lead.models.map((m, i) => <span key={i} className={'badge ' + (i === 0 ? 'badge-green' : 'badge-gray')}>
+                  {m.model_name}{m.color ? ` · ${m.color}` : ''}{i === 0 ? ' (main)' : ''}</span>)}
+              </div>)
+          ) : (
+            <>
+              {mods.map((m, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <select className="input" value={m.model_id} onChange={(e) => setMods(mods.map((x, j) => j === i ? { ...x, model_id: e.target.value } : x))}>
+                    <option value="">Select model</option>
+                    {lookups?.models?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  </select>
+                  <input className="input" placeholder="Colour" value={m.color} onChange={(e) => setMods(mods.map((x, j) => j === i ? { ...x, color: e.target.value } : x))} />
+                  <button type="button" className="btn btn-outline btn-sm" onClick={() => setMods(mods.filter((_, j) => j !== i))}>Remove</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8 }}>
+                {mods.length < 6 && <button type="button" className="btn btn-outline btn-sm" onClick={() => setMods([...mods, { model_id: '', color: '' }])}>+ Add model</button>}
+                <button type="button" className="btn btn-primary btn-sm" onClick={saveModels}>Save</button>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => setMods(null)}>Cancel</button>
+              </div>
+              <div className="muted-note" style={{ marginTop: 6 }}>The first row is the main model used on the quotation.</div>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* ADD NEW FOLLOW UP */}
       <div className="card">
         <div className="card-header"><h3>Add New Follow Up</h3></div>
@@ -515,6 +617,32 @@ export default function CustomerDetailPage() {
               <input className="input" type="datetime-local" value={fu.next_followup_at} onChange={setFuF('next_followup_at')}
                 min={fuLimits.min} max={fuLimits.max} /></div>
           </div>
+          {needsDetails && (
+            <div style={{ marginTop: 6, padding: 12, background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: '#9A3412', marginBottom: 8 }}>
+                Call details (required — the call is not counted without them)
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+                <div className="field" style={{ marginBottom: 0 }}><label>Bike model *</label>
+                  <select className="input" value={fu.model_id || lead.model_id || ''} onChange={setFuF('model_id')}>
+                    <option value="">Select model</option>
+                    {lookups?.models?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select></div>
+                <div className="field" style={{ marginBottom: 0 }}><label>Colour *</label>
+                  <input className="input" value={fu.color || lead.color || ''} onChange={setFuF('color')} /></div>
+                <div className="field" style={{ marginBottom: 0 }}><label>Showroom visit *</label>
+                  <select className="input" value={fu.showroom_visit || lead.showroom_visit || ''} onChange={setFuF('showroom_visit')}>
+                    <option value="">Select</option><option value="YES">Yes (visited)</option>
+                    <option value="PLANNED">Planned</option><option value="NO">No</option>
+                  </select></div>
+                <div className="field" style={{ marginBottom: 0 }}><label>Test ride *</label>
+                  <select className="input" value={fu.test_ride_interest || lead.test_ride_interest || ''} onChange={setFuF('test_ride_interest')}>
+                    <option value="">Select</option><option value="YES">Yes (taken)</option>
+                    <option value="PLANNED">Planned</option><option value="NO">No</option>
+                  </select></div>
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
             <button type="button" className="btn btn-primary" onClick={() => setShowQuotationForm(true)}>+ Create Quotation</button>
             <div style={{ display: 'flex', gap: 10 }}>

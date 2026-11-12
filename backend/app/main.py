@@ -15,6 +15,21 @@ from app.modules.dashboard.router import router as dashboard_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.audit.router import router as audit_router
 from app.modules.documents.router import router as documents_router
+from app.modules.payments.router import router as payments_router
+from app.modules.handoffs.router import router as handoffs_router
+from app.modules.stock.router import router as stock_router
+from app.modules.targets.router import router as targets_router
+from app.modules.whatsapp.router import router as whatsapp_router
+from app.modules.owner.router import router as owner_router
+from app.modules.users.branch_router import router as branch_setup_router
+from app.modules.auth.branch_router import router as branch_login_router
+from app.modules.handoffs.public_router import router as delivery_public_router
+from app.modules.insurance.router import router as insurance_router
+from app.modules.accounts.router import router as accounts_router
+from app.modules.invoice_read.router import router as invoice_read_router
+from app.modules.final_review.router import router as final_review_router
+from app.modules.cre_reports.router import router as cre_reports_router
+from app.modules.payments.public_router import router as payments_public_router
 from app.modules.leads.service import sync_dropdown_lists
 
 app = FastAPI(title="S.K. Automobiles CRM — API")
@@ -37,6 +52,21 @@ app.include_router(dashboard_router)
 app.include_router(notifications_router)
 app.include_router(audit_router)
 app.include_router(documents_router)
+app.include_router(payments_router)
+app.include_router(handoffs_router)
+app.include_router(stock_router)
+app.include_router(targets_router)
+app.include_router(whatsapp_router)
+app.include_router(owner_router)
+app.include_router(branch_setup_router)
+app.include_router(branch_login_router)
+app.include_router(delivery_public_router)
+app.include_router(insurance_router)
+app.include_router(accounts_router)
+app.include_router(invoice_read_router)
+app.include_router(final_review_router)
+app.include_router(cre_reports_router)
+app.include_router(payments_public_router)
 
 
 @app.on_event("startup")

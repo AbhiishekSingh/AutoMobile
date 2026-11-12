@@ -4,11 +4,13 @@ import Layout from '../../components/Layout'
 import { Empty, Loading, Pager, fmtDateTime } from '../../components/ui'
 import api from '../../lib/api'
 import BranchFilter, { useBranchFilter } from '../../components/BranchFilter'
+import BranchViewToggle, { useBranchView } from '../branch/BranchViewToggle'
 
 const EMPTY_WALKIN = {
   full_name: '', phone: '', alt_phone: '', city: '', pincode: '',
   mode_id: '', model_id: '', color: '', lead_type: 'SALES', source: 'WALKIN',
   branch_id: '', assigned_user_id: '',   // CRE only: which branch + which PBA (optional)
+  more_models: [],                       // extra models of interest: [{ model_id, color }]
 }
 
 // Icon + accent colour for each source tile, keyed by the mode name (lowercased).
@@ -183,6 +185,7 @@ export default function LeadsPage() {
 
   const pageSize = 10
   const branch = useBranchFilter()   // CRE only: All my branches / one branch
+  const bview = useBranchView()      // PBA under a branch login: my customers / whole branch
   const [pbas, setPbas] = useState([])   // CRE walk-in form: PBAs of the chosen branch
 
   // Returning customer: as soon as a full mobile number is typed, ask the
@@ -224,13 +227,13 @@ export default function LeadsPage() {
   function loadList() {
     if (!branch.ready) return
     setList(null)
-    api.get('/leads', { params: { mode, bucket, search: search || undefined, page, page_size: pageSize, ...branch.params } })
+    api.get('/leads', { params: { mode, bucket, search: search || undefined, page, page_size: pageSize, ...branch.params, ...bview.params } })
       .then((r) => setList(r.data))
       .catch(() => setList({ total: 0, page: 1, page_size: pageSize, rows: [] }))
   }
 
   // Re-fetch whenever a filter changes — this is what makes the tiles/pipeline clickable.
-  useEffect(() => { loadList() }, [mode, bucket, page, branch.ready, branch.branchId])
+  useEffect(() => { loadList() }, [mode, bucket, page, branch.ready, branch.branchId, bview.whole])
 
   function pickSource(key) { setMode(key); setPage(1) }
   function pickBucket(key) { setBucket(key); setPage(1) }
@@ -268,9 +271,17 @@ export default function LeadsPage() {
         nav(`/leads/${data.lead_id}`)
         return
       }
+      // several models of interest: the first row is the main model
+      const extra = (form.more_models || []).filter((m) => m.model_id)
+      const models = form.model_id
+        ? [{ model_id: Number(form.model_id), color: form.color || null },
+           ...extra.map((m) => ({ model_id: Number(m.model_id), color: m.color || null }))]
+        : null
+      const { more_models, ...formRest } = form
       const payload = {
-        ...form,
+        ...formRest,
         ...target,
+        models,
         phone: phoneDigits || form.phone,
         mode_id: form.mode_id ? Number(form.mode_id) : null,
         model_id: form.model_id ? Number(form.model_id) : null,
@@ -312,6 +323,7 @@ export default function LeadsPage() {
       {branch.show && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
           <BranchFilter branch={branch} onChange={() => setPage(1)} />
+          <BranchViewToggle view={bview} onChange={() => setPage(1)} />
         </div>
       )}
       {/* ---------- source tiles (counts from DB) ---------- */}
@@ -426,6 +438,27 @@ export default function LeadsPage() {
                 </select></div>
               <div className="field"><label>Colour</label>
                 <input className="input" value={form.color} onChange={setF('color')} /></div>
+              {form.model_id && (form.more_models || []).map((mm, i) => (
+                <div key={i} style={{ gridColumn: 'span 2', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>Another model</label>
+                    <select className="input" value={mm.model_id}
+                            onChange={(e) => setForm({ ...form, more_models: form.more_models.map((x, j) => j === i ? { ...x, model_id: e.target.value } : x) })}>
+                      <option value="">— select —</option>
+                      {lookups?.models?.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select></div>
+                  <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>Colour</label>
+                    <input className="input" value={mm.color}
+                           onChange={(e) => setForm({ ...form, more_models: form.more_models.map((x, j) => j === i ? { ...x, color: e.target.value } : x) })} /></div>
+                  <button type="button" className="btn btn-outline btn-sm"
+                          onClick={() => setForm({ ...form, more_models: form.more_models.filter((_, j) => j !== i) })}>Remove</button>
+                </div>
+              ))}
+              {form.model_id && (form.more_models || []).length < 5 && (
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <button type="button" className="btn btn-outline btn-sm"
+                          onClick={() => setForm({ ...form, more_models: [...(form.more_models || []), { model_id: '', color: '' }] })}>+ Add another model</button>
+                </div>
+              )}
               <div className="field"><label>Lead type</label>
                 <select className="input" value={form.lead_type} onChange={setF('lead_type')}>
                   <option value="SALES">SALES</option>
@@ -482,7 +515,7 @@ export default function LeadsPage() {
                   <td className="cell-muted">{l.enquiry_no}</td>
                   <td>{fmtDateTime(l.enquiry_at)}</td>
                   <td>{l.enquiry_mode || '—'}</td>
-                  <td className="cell-primary">{l.customer_name}</td>
+                  <td className="cell-primary">{l.customer_name}{!l.is_mine && <div className="muted-note">PBA: {l.assigned_pba} · view only</div>}</td>
                   <td className="cell-muted">{l.contact_masked}</td>
                   <td>{l.model_name || '—'}</td>
                   <td><Badge name={l.opportunity_status} /></td>

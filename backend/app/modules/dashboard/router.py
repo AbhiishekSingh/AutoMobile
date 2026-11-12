@@ -8,8 +8,11 @@ from app.core.deps import get_current_user, get_db, require_roles
 from app.modules.leads.models import (BikeModel, EnquiryStage, Lead,
                                       LeadSource, LostReason, SLAFlag)
 from app.modules.quotations.models import Quotation, QuotationStatus
+from app.modules.targets import service as tgt
 from app.modules.users.models import AppUser, Role
 from app.modules.leads.service import scope
+from app.modules.leads.sla import sla_conditions
+from app.modules.leads.stages import cancelled_booking_condition, sold_condition
 from app.modules.users.access import MANAGER_ROLES, SALES_ROLES, dashboard_branch
 
 router = APIRouter(tags=["dashboard"])
@@ -28,7 +31,7 @@ def charts(
     Returns data for:
       1. target_tracker   — grouped bar chart (model-wise target vs achieved)
       2. total_sales      — donut chart (achieved / to_be_achieved / cancelled)
-      3. sla_compliance    — donut chart (GREEN / YELLOW / RED follow-up SLA)
+      3. sla_compliance    — donut chart (GREEN on time / YELLOW pending / RED late or overdue)
       4. lead_source       — donut chart (CSV import vs WALKIN)
       5. lost_reasons      — horizontal bar (top reasons for CLOSED leads)
       6. quotation_funnel  — bar chart (DRAFT/SHARED/ACCEPTED/EXPIRED/REJECTED)
@@ -45,7 +48,7 @@ def charts(
     # ── 1. Target Tracker (model-wise) ──────────────────────────────────────
     # "Achieved" = BOOKED or INVOICED stage
     # "Target"   = all leads for that model in the period — acts as target pool
-    achieved_stages = [EnquiryStage.BOOKED, EnquiryStage.INVOICED]
+    # (achieved = booked or later, incl. delivered-then-closed: sold_condition)
 
     # NOTE: join Lead to BikeModel FIRST, then apply scope()/filters — see
     # the comment on the Lost Reasons query below for why ordering matters
@@ -66,7 +69,7 @@ def charts(
     achieved_q = (
         db.query(BikeModel.name, func.count(Lead.lead_id))
         .join(Lead, Lead.model_id == BikeModel.id, isouter=True)
-        .filter(Lead.enquiry_stage.in_(achieved_stages))
+        .filter(sold_condition(db))
         .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
     )
     achieved_rows = {
@@ -91,42 +94,46 @@ def charts(
     # Sort by target desc for a nicer chart
     target_tracker.sort(key=lambda x: x["target"], reverse=True)
 
+    # Real targets (set by Owner/GM) replace the stand-in when they exist for a month/year view
+    real = tgt.period_targets(db, user, branch_id, period, period_start, period_end)
+    if real:
+        got = tgt.booked_by_model(db, user, branch_id, period_start, period_end)
+        target_tracker = []
+        for name in sorted(set(real) | set(got)):
+            t, a = real.get(name, 0), got.get(name, 0)
+            target_tracker.append({"model": name, "target": t, "achieved": a,
+                                   "achievement_pct": round(a * 100 / t) if t else 0})
+        target_tracker.sort(key=lambda x: x["target"], reverse=True)
+
     # ── 2. Total Sales of Vehicles ───────────────────────────────────────────
-    # Achieved  = BOOKED + INVOICED
-    # To Be     = OPEN + QUOTED
-    # Cancelled = CLOSED
-    stage_map = {
-        EnquiryStage.BOOKED:   "achieved",
-        EnquiryStage.INVOICED: "achieved",
-        EnquiryStage.OPEN:     "to_be_achieved",
-        EnquiryStage.QUOTED:   "to_be_achieved",
-        EnquiryStage.CLOSED:   "cancelled",
-    }
+    # Achieved  = booked or any later stage (incl. delivered-then-closed)
+    # To Be     = still OPEN
+    # Cancelled = a booking that was cancelled (closed after booking, not
+    #             delivered). Closed enquiries that never booked are lost
+    #             leads (see "Lost Reasons" below) — not cancelled sales.
+    def sales_count(condition):
+        return (scope(db.query(func.count(Lead.lead_id)), user, branch_id)
+                .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
+                .filter(condition).scalar() or 0)
 
-    stage_counts = dict(
-        scope(db.query(Lead.enquiry_stage, func.count(Lead.lead_id)), user, branch_id)
-        .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
-        .group_by(Lead.enquiry_stage)
-        .all()
-    )
-
-    totals = {"achieved": 0, "to_be_achieved": 0, "cancelled": 0}
-    for stage, bucket in stage_map.items():
-        totals[bucket] += stage_counts.get(stage, 0)
+    totals = {"achieved": sales_count(sold_condition(db)),
+              "to_be_achieved": sales_count(Lead.enquiry_stage == EnquiryStage.OPEN),
+              "cancelled": sales_count(cancelled_booking_condition(db))}
 
     # ── 3. SLA Compliance (follow-up responsiveness) ────────────────────────
     # GREEN  = contacted <= 3h, YELLOW = pending 3-24h, RED = overdue > 24h
-    sla_counts = dict(
-        scope(db.query(Lead.sla_flag, func.count(Lead.lead_id)), user, branch_id)
-        .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
-        .group_by(Lead.sla_flag)
-        .all()
-    )
-    sla_compliance = {
-        "green": sla_counts.get(SLAFlag.GREEN, 0),
-        "yellow": sla_counts.get(SLAFlag.YELLOW, 0),
-        "red": sla_counts.get(SLAFlag.RED, 0),
-    }
+    # Worked out from the clock (leads/sla.py): green = contacted within 3h;
+    # yellow = not contacted yet (still in time, or 3-24h); red = contacted
+    # late OR not contacted after 24h.
+    sla_cond = sla_conditions()
+
+    def sla_count(key):
+        return (scope(db.query(func.count(Lead.lead_id)), user, branch_id)
+                .filter(Lead.enquiry_at >= period_start, Lead.enquiry_at < period_end)
+                .filter(sla_cond[key]).scalar() or 0)
+
+    sla_compliance = {"green": sla_count("GREEN"), "yellow": sla_count("YELLOW"),
+                      "red": sla_count("RED")}
 
     # ── 4. Lead Source Split (CSV import vs Walk-in) ─────────────────────────
     source_counts = dict(
@@ -186,4 +193,4 @@ def charts(
         "lead_source": lead_source,
         "lost_reasons": lost_reasons,
         "quotation_funnel": quotation_funnel,
-    }
+    }

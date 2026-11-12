@@ -18,6 +18,18 @@ from app.core.database import Base, now_ist
 class NotificationType(str, enum.Enum):
     LEAD_ASSIGNED = "LEAD_ASSIGNED"              # a single lead was (re)assigned to you
     LEADS_BULK_ASSIGNED = "LEADS_BULK_ASSIGNED"   # a CSV import assigned N leads to you
+    STAGE_CHANGED = "STAGE_CHANGED"               # a lead you follow moved to a new stage
+    CALL_LATER_REMINDER = "CALL_LATER_REMINDER"   # 1 hour after "Call Later": time to call back
+    INSURANCE_STARTED = "INSURANCE_STARTED"       # booking done: insurance has to be processed
+    INSURANCE_DONE = "INSURANCE_DONE"             # policy PDF uploaded
+    RTO_UPDATE = "RTO_UPDATE"                     # registration number / delivery date added
+    APPROVAL_REQUESTED = "APPROVAL_REQUESTED"     # PBA asks the Owner to approve a deal
+    APPROVAL_DECIDED = "APPROVAL_DECIDED"         # Owner approved / rejected
+    ATW_REQUESTED = "ATW_REQUESTED"
+    ATW_DECIDED = "ATW_DECIDED"
+    DELIVERY_OVERRIDE = "DELIVERY_OVERRIDE"       # Owner allowed a delivery despite pending items
+    FINAL_REVIEW_DUE = "FINAL_REVIEW_DUE"         # delivered: the CRE must call the customer and close the file
+    DELIVERY_ACK = "DELIVERY_ACK"                 # customer pressed I AGREE on the delivery receipt
 
 
 class Notification(Base):

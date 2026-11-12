@@ -15,6 +15,8 @@ class Role(str, enum.Enum):
     CRE = "CRE"
     RTO = "RTO"
     ADMIN = "ADMIN"
+    INSURANCE = "INSURANCE"   # separate insurance team login (all branches)
+    BRANCH = "BRANCH"   # shared branch login; the PBAs working under it are PBA "profiles"
 
 
 class Branch(Base):
@@ -25,6 +27,7 @@ class Branch(Base):
     city = Column(String)
     address = Column(String)
     contact_no = Column(String)
+    whatsapp_number = Column(String)   # branch number that receives PBA alerts
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=now_ist)
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)
@@ -38,7 +41,17 @@ class AppUser(Base):
     login_id = Column(String, unique=True, index=True, nullable=False)
     full_name = Column(String, nullable=False)
     email = Column(String, unique=True)
+    phone = Column(String)       # mobile / WhatsApp number (used for WhatsApp alerts to staff)
     hashed_password = Column(String, nullable=False)
+    # A PBA "profile" has no login of its own (login_enabled False): the PBA works under their branch's
+    # shared login and proves who they are with a personal PIN.
+    login_enabled = Column(Boolean, default=True, nullable=False, server_default="true")
+    pin_hash = Column(String)
+    # How this PBA appears in LeadSquared exports (Salesperson email / name), when it differs from the CRM's own
+    ls_email = Column(String)
+    ls_name = Column(String)
+    pin_failed = Column(Integer, default=0, nullable=False, server_default="0")   # wrong PINs in a row
+    pin_locked_until = Column(DateTime)
     role = Column(Enum(Role), nullable=False)
     branch_id = Column(Integer, ForeignKey("branch.branch_id"))
     is_active = Column(Boolean, default=True)
@@ -50,6 +63,12 @@ class AppUser(Base):
     # page). Other roles have none and use `branch_id` above.
     branch_links = relationship("UserBranch", cascade="all, delete-orphan",
                                 lazy="selectin", order_by="UserBranch.branch_id")
+
+    via_branch = False      # set per request when this PBA is working under the branch login
+
+    @property
+    def has_pin(self) -> bool:
+        return bool(self.pin_hash)
 
     @property
     def branch_ids(self) -> list[int]:

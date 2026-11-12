@@ -12,6 +12,7 @@ from app.modules.notifications.models import Notification
 from app.modules.notifications.schemas import (MarkReadResponse,
                                                 NotificationListResponse,
                                                 UnreadCountResponse)
+from app.modules.leads.callbacks import deliver_due_callbacks
 from app.modules.users.models import AppUser
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -27,6 +28,7 @@ def _unread_count(db: Session, user_id: int) -> int:
 @router.get("", response_model=NotificationListResponse)
 def list_notifications(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db),
                        unread_only: bool = False, page: int = 1, page_size: int = 20):
+    deliver_due_callbacks(db, user)          # 1-hour "Call Later" reminders that are due
     page = max(page, 1)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
 
@@ -44,6 +46,7 @@ def list_notifications(user: AppUser = Depends(get_current_user), db: Session = 
 
 @router.get("/unread-count", response_model=UnreadCountResponse)
 def unread_count(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    deliver_due_callbacks(db, user)          # the bell polls this, so reminders appear on time
     return UnreadCountResponse(unread_count=_unread_count(db, user.user_id))
 
 

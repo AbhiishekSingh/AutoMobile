@@ -15,6 +15,7 @@ narrows the list to one branch; it can never widen it — a CRE asking for a
 branch that isn't theirs gets a 403, not data.
 """
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.leads.models import Lead
@@ -39,11 +40,14 @@ def check_branch_access(user: AppUser, branch_id: int | None) -> None:
         raise HTTPException(403, "You don't have access to this branch")
 
 
-def scope_leads(query, user: AppUser, branch_id: int | None = None):
+def scope_leads(query, user: AppUser, branch_id: int | None = None, whole_branch: bool = False):
     """Limit a Lead query (ORM Query or select()) to the leads `user` may see,
     optionally narrowed to one branch."""
     if user.role == Role.PBA:
-        if user.branch_id:
+        if whole_branch and user.via_branch and user.branch_id:
+            # PBA under a branch login: may LOOK at every customer of the branch (view-only is enforced in core/deps.py)
+            query = query.filter(Lead.branch_id == user.branch_id)
+        elif user.branch_id:
             query = query.filter(
                 (Lead.assigned_user_id == user.user_id) |
                 ((Lead.assigned_user_id.is_(None)) & (Lead.branch_id == user.branch_id))
@@ -52,6 +56,10 @@ def scope_leads(query, user: AppUser, branch_id: int | None = None):
             query = query.filter(Lead.assigned_user_id == user.user_id)
     elif is_cre(user):
         query = query.filter(Lead.branch_id.in_(user.branch_ids or [-1]))
+    elif user.role == Role.INSURANCE:
+        # the insurance team: only leads whose insurance file has started (after BOOKING DONE), every branch
+        from app.modules.handoffs.models import InsuranceCase
+        query = query.filter(Lead.lead_id.in_(select(InsuranceCase.lead_id)))
     elif user.role.value not in MANAGER_ROLES:
         query = query.filter(Lead.lead_id == -1)   # any other role: nothing
 
@@ -72,7 +80,7 @@ def dashboard_branch(user: AppUser, branch_id: int | None) -> int | None:
 def get_visible_lead(db: Session, user: AppUser, lead_id: int) -> Lead:
     """The lead, if `user` may see it — otherwise 404 (not 403, so we don't
     reveal that the lead exists)."""
-    lead = scope_leads(db.query(Lead), user).filter(Lead.lead_id == lead_id).first()
+    lead = scope_leads(db.query(Lead), user, whole_branch=True).filter(Lead.lead_id == lead_id).first()
     if not lead:
         raise HTTPException(404, "Lead not found")
     return lead

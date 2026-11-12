@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, user_from_payload
 from app.core.security import (create_access_token, create_refresh_token,
                                decode_token, verify_password)
 from app.modules.auth.schemas import (LoginRequest, RefreshRequest,
@@ -20,6 +20,8 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Login ID or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is deactivated")
+    if not user.login_enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This name has no login of its own. Sign in with your branch account, then choose your name.")
     role = user.role.value
     return TokenResponse(access_token=create_access_token(user.login_id, role),
                          refresh_token=create_refresh_token(user.login_id, role),
@@ -31,12 +33,14 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     payload = decode_token(body.refresh_token)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
-    user = db.query(AppUser).filter(AppUser.login_id == payload.get("sub")).first()
-    if not user or not user.is_active:
+    user = user_from_payload(db, payload)
+    if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer valid")
-    role = user.role.value
-    return TokenResponse(access_token=create_access_token(user.login_id, role),
-                         refresh_token=create_refresh_token(user.login_id, role),
+    base_login = payload.get("sub")
+    act = payload.get("act")
+    role = payload.get("role") or user.role.value
+    return TokenResponse(access_token=create_access_token(base_login, role, act),
+                         refresh_token=create_refresh_token(base_login, role, act),
                          user=UserOut.model_validate(user))
 
 

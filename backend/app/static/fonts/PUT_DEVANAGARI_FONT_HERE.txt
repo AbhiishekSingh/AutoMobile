@@ -1,0 +1,1 @@
+For Marathi receipts: add NotoSansDevanagari-Regular.ttf (and -Bold.ttf) here and run: pip install uharfbuzz

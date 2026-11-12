@@ -29,7 +29,7 @@ from app.modules.quotations.schemas import (DocumentsBulkUpdate,
 from app.modules.quotations.service import (default_valid_until,
                                             mark_lead_quoted,
                                             next_quotation_no, scope,
-                                            seed_defaults)
+                                            seed_defaults, check_choices, monthly_emi)
 from app.modules.users.access import MANAGER_ROLES, SALES_ROLES, get_visible_lead
 from app.modules.users.models import AppUser
 
@@ -52,6 +52,10 @@ def create_quotation(lead_id: int, body: QuotationCreate,
                      user: AppUser = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     lead = get_visible_lead(db, user, lead_id)
+    try:
+        check_choices(body.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     quotation = Quotation(
         quotation_no=next_quotation_no(db), lead_id=lead.lead_id,
@@ -65,6 +69,10 @@ def create_quotation(lead_id: int, body: QuotationCreate,
         sales_manager_name=body.sales_manager_name,
         finance_bank_name=body.finance_bank_name,
         finance_financer_name=body.finance_financer_name,
+        discounted_price=body.discounted_price, payment_type=body.payment_type,
+        down_payment=body.down_payment, acc_helmet=body.acc_helmet,
+        acc_parking_cover=body.acc_parking_cover, rsa_one_year=body.rsa_one_year,
+        engine_warranty_years=body.engine_warranty_years,
         valid_until=default_valid_until(),
     )
     db.add(quotation); db.flush()
@@ -106,7 +114,13 @@ def update_quotation(quotation_id: int, body: QuotationUpdate,
                      user: AppUser = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     quotation = _get_or_404(db, quotation_id, user)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    try:   # check the new values together with the ones already saved
+        check_choices({"on_road_price": quotation.on_road_price, "discounted_price": quotation.discounted_price,
+                       "down_payment": quotation.down_payment, **changes})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    for field, value in changes.items():
         setattr(quotation, field, value)
     db.commit(); db.refresh(quotation)
     return quotation
@@ -136,7 +150,13 @@ def update_emi(quotation_id: int, body: EmiBulkUpdate,
     db.query(QuotationEmiOption).filter(
         QuotationEmiOption.quotation_id == quotation_id).delete()
     for row in body.emi_options:
-        db.add(QuotationEmiOption(quotation_id=quotation_id, **row.model_dump()))
+        data = row.model_dump()
+        # monthly EMI left empty but ROI given: work it out from the amount to be financed
+        down = data.get("down_payment") if data.get("down_payment") is not None else quotation.down_payment
+        base = quotation.discounted_price if quotation.discounted_price is not None else quotation.on_road_price
+        if data.get("monthly_emi") is None and data.get("roi_percent") is not None and data["tenure_months"] > 0:
+            data["monthly_emi"] = monthly_emi(base - (down or 0), data["tenure_months"], data["roi_percent"])
+        db.add(QuotationEmiOption(quotation_id=quotation_id, **data))
     db.commit(); db.refresh(quotation)
     return quotation
 
@@ -262,4 +282,4 @@ def update_status(quotation_id: int, body: QuotationStatusUpdate,
     quotation = _get_or_404(db, quotation_id, user)
     quotation.status = body.status
     db.commit(); db.refresh(quotation)
-    return quotation
+    return quotation

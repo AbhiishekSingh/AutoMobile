@@ -31,7 +31,10 @@ class LeadRow(BaseModel):
     model_name: Optional[str]
     opportunity_status: Optional[str]
     disposition: Optional[str]
-    sla_flag: str
+    sla_flag: str          # GREEN | YELLOW | RED
+    sla_state: str = ""    # COMPLETED | LATE | WITHIN_TIME | PENDING | OVERDUE
+    assigned_pba: Optional[str] = None   # who the customer belongs to
+    is_mine: bool = True                 # False = another PBA's customer (view only for a PBA under a branch login)
 
 
 class LeadListResponse(BaseModel):
@@ -85,6 +88,9 @@ class PreviousDetails(BaseModel):
 
 
 class LeadDetail(BaseModel):
+    view_only: bool = False   # PBA under a branch login looking at a colleague's customer
+    branch_id: Optional[int] = None
+    assigned_user_id: Optional[int] = None
     lead_id: int
     customer_id: int
     enquiry_no: str
@@ -119,6 +125,9 @@ class LeadDetail(BaseModel):
     followups: list[FollowupOut]
     test_rides: list[TestRideOut]
     previous_details: list[PreviousDetails] = []
+    showroom_visit: Optional[str] = None
+    test_ride_interest: Optional[str] = None
+    models: list[dict] = []          # every model + colour the customer enquired about
 
 
 # ---------- returning customer (walk-in form phone check) ----------
@@ -182,6 +191,11 @@ class LeadUpdate(BaseModel):
 
 
 # ---------- create payloads ----------
+class ModelInterestIn(BaseModel):
+    model_id: int
+    color: Optional[str] = None
+
+
 class LeadCreate(BaseModel):
     full_name: str
     phone: str
@@ -191,6 +205,7 @@ class LeadCreate(BaseModel):
     mode_id: Optional[int] = None
     model_id: Optional[int] = None
     color: Optional[str] = None
+    models: Optional[list[ModelInterestIn]] = None   # several models of interest (first = main)
     lead_type: str = "SALES"
     source: str = "WALKIN"
     # CRE only (ignored for a PBA, whose lead goes to their own branch + themselves):
@@ -204,6 +219,11 @@ class FollowupCreate(BaseModel):
     disposition_id: Optional[int] = None
     opportunity_status_id: Optional[int] = None
     next_followup_at: Optional[datetime] = None
+    # call details (required after an enquiry call unless already on the lead)
+    model_id: Optional[int] = None
+    color: Optional[str] = None
+    showroom_visit: Optional[str] = None       # YES / NO / PLANNED
+    test_ride_interest: Optional[str] = None   # YES / NO / PLANNED
 
 
 class TestRideCreate(BaseModel):
@@ -254,6 +274,7 @@ class FollowupRow(BaseModel):
     disposition: Optional[str]
     next_followup_at: Optional[datetime]
     sla_flag: str
+    sla_state: str = ""
     bucket: str            # overdue | today | upcoming
 
 
@@ -283,4 +304,4 @@ class PBADashboard(BaseModel):
     # reached BOOKED/INVOICED, and the numbers behind it
     total_target_ratio: int = 0
     target_achieved: int = 0
-    target_total: int = 0
+    target_total: int = 0

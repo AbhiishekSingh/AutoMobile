@@ -4,6 +4,7 @@ import Layout from '../../components/Layout'
 import { Empty, Loading, Pager, fmtDate } from '../../components/ui'
 import api from '../../lib/api'
 import BranchFilter, { useBranchFilter } from '../../components/BranchFilter'
+import BranchViewToggle, { useBranchView } from '../branch/BranchViewToggle'
 
 export default function CustomersPage() {
   const nav = useNavigate()
@@ -12,15 +13,16 @@ export default function CustomersPage() {
   const [data, setData] = useState(null)
   const pageSize = 10
   const branch = useBranchFilter()   // CRE only: All my branches / one branch
+  const bview = useBranchView()
 
   function load() {
     if (!branch.ready) return
     setData(null)
-    api.get('/customers', { params: { search: search || undefined, page, page_size: pageSize, ...branch.params } })
+    api.get('/customers', { params: { search: search || undefined, page, page_size: pageSize, ...branch.params, ...bview.params } })
       .then((r) => setData(r.data))
       .catch(() => setData({ total: 0, page: 1, page_size: pageSize, rows: [] }))
   }
-  useEffect(() => { load() }, [page, branch.ready, branch.branchId])
+  useEffect(() => { load() }, [page, branch.ready, branch.branchId, bview.whole])
 
   function submit(e) { e.preventDefault(); setPage(1); load() }
 
@@ -31,6 +33,7 @@ export default function CustomersPage() {
           <h3>Customers {data && <span className="muted-note">({data.total})</span>}</h3>
           <form onSubmit={submit} style={{ display: 'flex', gap: 8 }}>
             <BranchFilter branch={branch} onChange={() => setPage(1)} />
+            <BranchViewToggle view={bview} onChange={() => setPage(1)} />
             <input className="input" style={{ maxWidth: 240 }} placeholder="Search name / phone / city"
                    value={search} onChange={(e) => setSearch(e.target.value)} />
             <button className="btn btn-outline btn-sm">Search</button>

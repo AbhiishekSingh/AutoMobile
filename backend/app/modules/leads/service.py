@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import IST, now_ist
 from app.modules.leads.lookup_names import lookup_key
+from app.modules.leads.sla import COMPLETED, OVERDUE, sla_conditions
 from app.modules.leads.models import (Customer, CustomerDetailHistory,
                                       Disposition, Lead, LeadType, LostReason,
                                       OpportunityStatus, SLAFlag, TestRide,
@@ -219,7 +220,7 @@ def mask_phone(phone: str) -> str:
     return f"{p[:2]}{'X' * (len(p) - 4)}{p[-2:]}"
 
 
-def scope(query, user: AppUser, branch_id: int | None = None):
+def scope(query, user: AppUser, branch_id: int | None = None, whole_branch: bool = False):
     """Limit a Lead query to what `user` may see (optionally one branch).
 
     The rule itself lives in app/modules/users/access.py (scope_leads) so
@@ -227,7 +228,7 @@ def scope(query, user: AppUser, branch_id: int | None = None):
     PBA = own leads + unassigned in own branch; CRE = every lead in their
     1-2 branches; Owner/GM/Admin = everything.
     """
-    return scope_leads(query, user, branch_id)
+    return scope_leads(query, user, branch_id, whole_branch)
 
 
 def _ids_named(db: Session, Model, name: str) -> list[int]:
@@ -240,12 +241,13 @@ def _ids_named(db: Session, Model, name: str) -> list[int]:
 def bucket_filter(query, bucket: str, db: Session):
     if bucket in (None, "", "all"):
         return query
+    # Completed / Pending / Overdue come from the clock (leads/sla.py), not a stored flag
     if bucket == "completed":
-        return query.filter(Lead.sla_flag == SLAFlag.GREEN)
+        return query.filter(sla_conditions()[COMPLETED])
     if bucket == "pending":
-        return query.filter(Lead.sla_flag == SLAFlag.YELLOW)
+        return query.filter(sla_conditions()["PENDING_BUCKET"])
     if bucket == "overdue":
-        return query.filter(Lead.sla_flag == SLAFlag.RED)
+        return query.filter(sla_conditions()[OVERDUE])
     if bucket == "calllater":
         # "CALL LATER" is now an Opportunity Status; older/imported leads may
         # still carry it as a disposition — count both.
@@ -258,11 +260,17 @@ def bucket_filter(query, bucket: str, db: Session):
         return query.filter(Lead.lead_id.in_(sub))
     if bucket == "service":
         return query.filter(Lead.lead_type == LeadType.SERVICE)
+    if bucket == "unassigned":      # in the branch pool: nobody owns it yet
+        return query.filter(Lead.assigned_user_id.is_(None))
     if bucket == "closed":
         return query.filter(Lead.enquiry_stage == "CLOSED")
     if bucket == "future":
-        o = db.query(OpportunityStatus).filter(OpportunityStatus.name == "FUTURE LEAD").first()
-        return query.filter(Lead.opportunity_status_id == (o.id if o else -1))
+        # Opportunity Status "FUTURE LEAD" (leads imported from LeadSquare) OR
+        # Disposition "FUTURE CUSTOMER" (picked by the PBA in the CRM).
+        o_ids = _ids_named(db, OpportunityStatus, "FUTURE LEAD")
+        d_ids = _ids_named(db, Disposition, "FUTURE CUSTOMER")
+        return query.filter(Lead.opportunity_status_id.in_(o_ids or [-1]) |
+                            Lead.current_disposition_id.in_(d_ids or [-1]))
     if bucket == "casual":
         # Opportunity Status "CASUAL ENQUIRY", or (older/imported leads) a
         # lost reason containing "casual".
@@ -270,4 +278,4 @@ def bucket_filter(query, bucket: str, db: Session):
         o_ids = _ids_named(db, OpportunityStatus, "CASUAL ENQUIRY")
         return query.filter((Lead.lost_reason_id == (r.id if r else -1)) |
                             Lead.opportunity_status_id.in_(o_ids or [-1]))
-    return query
+    return query

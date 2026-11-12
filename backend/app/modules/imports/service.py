@@ -18,6 +18,7 @@ import io
 from datetime import datetime, timedelta
 
 from openpyxl import load_workbook
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.database import now_ist
@@ -81,8 +82,12 @@ def _int(v):
         return 0
 
 
-_STAGE_MAP = {"open": EnquiryStage.OPEN, "closed": EnquiryStage.CLOSED,
-              "booked": EnquiryStage.BOOKED, "invoiced": EnquiryStage.INVOICED}
+# A LeadSquared file can only say Open or Closed. Booked, Invoiced, Delivered...
+# are decided inside this CRM (payment, insurance, RTO, invoice, delivery —
+# see app/modules/leads/stages.py), so any other value in the file's
+# "Enquiry Stage" column is treated as Open. (Leads that are already in the
+# CRM are skipped by the import, so a file never changes an existing stage.)
+_STAGE_MAP = {"open": EnquiryStage.OPEN, "closed": EnquiryStage.CLOSED}
 
 
 def _stage(v):
@@ -146,45 +151,46 @@ def _get_or_create(db, Model, name, cache, active=True):
     return obj
 
 
-def _find_salesperson(db, email: str, name: str, cache: dict):
-    """Resolve a CSV row's salesperson to an actual PBA account.
+def _find_salesperson(db, email: str, name: str, cache: dict, branch_id: int | None = None):
+    """Resolve a CSV row's salesperson to an actual PBA, branch-aware.
 
-    Real-world exports (e.g. from LeadSquared/Bajaj) often carry a
-    "Salesperson Email Address" that isn't the PBA's login email at all
-    (a phone-number-style @bajajauto.co.in address, for example) — matching
-    on email alone silently leaves the lead unassigned in that case. So:
-
-      1. Try an exact-ish, case-insensitive match on email.
-      2. If that fails, fall back to a case-insensitive match on the
-         "Salesperson Name" column against the PBA's full name.
-      3. Either way, only ever match an ACTIVE PBA — never an Owner/GM/Admin/
-         CRE/RTO account, and never a deactivated user, even if their email
-         or name happens to coincide.
-
-    Returns the matched AppUser, or None (caller decides how to report that).
-    `cache` memoizes lookups within one import so a file with 500 rows for
-    the same salesperson only queries the DB once.
+    Looks for an ACTIVE PBA (never an Owner/GM/Admin/CRE/RTO, never a deactivated user) in this order:
+      1. the lead's own branch, by email  (the PBA's LeadSquared email, or their CRM email)
+      2. the lead's own branch, by name   (the PBA's LeadSquared name, or their full name)
+      3. any other branch, by email, then by name  (a PBA named in the file but registered in another branch)
+    Returns (PBA or None, cross_branch). A cross-branch match is still assigned (the file names that person) but is
+    counted so the import report can show it. No match -> None: the lead goes to its branch's unassigned pool.
+    `cache` memoizes lookups so a file with 500 rows for one salesperson only queries the DB once.
     """
     email = _clean(email)
     name = _clean(name)
-    key = ("salesperson", email.lower(), name.lower())
+    key = ("salesperson", email.lower(), name.lower(), branch_id)
     if key in cache:
         return cache[key]
 
-    sp = None
-    if email:
-        sp = (db.query(AppUser)
-                .filter(AppUser.email.ilike(email),
-                        AppUser.role == Role.PBA, AppUser.is_active.is_(True))
-                .first())
-    if not sp and name:
-        sp = (db.query(AppUser)
-                .filter(AppUser.full_name.ilike(name),
-                        AppUser.role == Role.PBA, AppUser.is_active.is_(True))
-                .first())
+    def pick(by_email: bool, in_branch: bool):
+        q = db.query(AppUser).filter(AppUser.role == Role.PBA, AppUser.is_active.is_(True))
+        if in_branch:
+            q = q.filter(AppUser.branch_id == branch_id)
+        if by_email:
+            if not email:
+                return None
+            return q.filter(or_(AppUser.ls_email.ilike(email), AppUser.email.ilike(email))).first()
+        if not name:
+            return None
+        return q.filter(or_(AppUser.ls_name.ilike(name), AppUser.full_name.ilike(name))).first()
 
-    cache[key] = sp
-    return sp
+    result = (None, False)
+    if branch_id:
+        sp = pick(True, True) or pick(False, True)
+        if sp:
+            result = (sp, False)
+    if result[0] is None:
+        sp = pick(True, False) or pick(False, False)
+        if sp:
+            result = (sp, bool(branch_id and sp.branch_id != branch_id))
+    cache[key] = result
+    return result
 
 
 def _rows_from_csv(content: bytes):
@@ -260,7 +266,7 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
     # PBA should produce a single "300 new leads assigned to you", not 300
     # separate rows flooding their bell.
     assigned_counts: dict[int, int] = {}
-    summary = {"rows_read": 0, "leads_created": 0, "customers_new": 0,
+    summary = {"cross_branch": 0, "unassigned_pool": 0, "rows_read": 0, "leads_created": 0, "customers_new": 0,
                "customers_matched": 0, "customer_details_updated": 0,
                "test_rides_created": 0,
                "skipped_duplicates": 0, "skipped_invalid": 0,
@@ -325,16 +331,24 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
             # actual login email). Only ever resolves to an active PBA. ----
             sp_name = _clean(row.get("Salesperson Name"))
             sp_email = _clean(row.get("Salesperson Email Address"))
-            sp = _find_salesperson(db, sp_email, sp_name, cache)
+            sp, cross_branch = _find_salesperson(db, sp_email, sp_name, cache, branch_id)
             if sp_email or sp_name:
                 if sp:
                     summary["salesperson_matched"] += 1
+                    if cross_branch:
+                        summary["cross_branch"] += 1
+                        if len(summary["errors"]) < 50:
+                            summary["errors"].append(
+                                f"Row {line_no}: '{sp_name or sp_email}' is registered in a different branch than this lead "
+                                f"— assigned anyway, please check")
                 else:
                     summary["salesperson_unmatched"] += 1
                     if len(summary["errors"]) < 50:
                         summary["errors"].append(
                             f"Row {line_no}: no active PBA matched salesperson "
-                            f"'{sp_name or sp_email}' — lead left unassigned")
+                            f"'{sp_name or sp_email}' — lead put in the branch's unassigned pool")
+            if not sp:
+                summary["unassigned_pool"] += 1
 
             # ---- lookups (auto-create) ----
             mode = _get_or_create(db, EnquiryMode, row.get("Enquiry Mode"), cache)
@@ -353,10 +367,8 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
             first_contact = _parse_dt(row.get("First Follow Up DateTime"))
             next_fu = _parse_dt(row.get("Next Follow Up DateTime"))
 
-            # SLA flag from first-contact timing
-            sla = SLAFlag.YELLOW
-            if first_contact and enquiry_at:
-                sla = SLAFlag.GREEN if (first_contact - enquiry_at) <= timedelta(hours=3) else SLAFlag.RED
+            # (SLA state is worked out from enquiry time + first contact time
+            #  when shown — nothing to store here; see leads/sla.py)
 
             lead = Lead(
                 enquiry_no=enquiry_no, customer_id=cust.customer_id, branch_id=branch_id,
@@ -368,7 +380,7 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
                 opportunity_status_id=opp.id if opp else None,
                 current_disposition_id=disp.id if disp else None,
                 lost_reason_id=lost.id if lost else None,
-                sla_flag=sla, enquiry_at=enquiry_at or now_ist(),
+                enquiry_at=enquiry_at or now_ist(),
                 first_contact_at=first_contact, next_followup_at=next_fu,
                 ageing_days=_int(row.get("Ageing Days")),
                 dealer_code=_clean(row.get("Enquiry Dealer Code")),

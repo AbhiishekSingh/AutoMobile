@@ -63,6 +63,13 @@ class QuotationCreate(BaseModel):
     sales_manager_name: Optional[str] = None
     finance_bank_name: Optional[str] = None
     finance_financer_name: Optional[str] = None
+    discounted_price: Optional[Decimal] = None     # internal — not on the customer copy
+    payment_type: str = "CASH"                      # CASH or EMI
+    down_payment: Optional[Decimal] = None
+    acc_helmet: bool = True
+    acc_parking_cover: bool = True
+    rsa_one_year: bool = True
+    engine_warranty_years: int = 5                  # 5 or 10
 
 
 class QuotationUpdate(BaseModel):
@@ -76,6 +83,13 @@ class QuotationUpdate(BaseModel):
     sales_manager_name: Optional[str] = None
     finance_bank_name: Optional[str] = None
     finance_financer_name: Optional[str] = None
+    discounted_price: Optional[Decimal] = None
+    payment_type: Optional[str] = None
+    down_payment: Optional[Decimal] = None
+    acc_helmet: Optional[bool] = None
+    acc_parking_cover: Optional[bool] = None
+    rsa_one_year: Optional[bool] = None
+    engine_warranty_years: Optional[int] = None
 
 
 class QuotationStatusUpdate(BaseModel):
@@ -126,6 +140,13 @@ class QuotationDetail(BaseModel):
     sales_manager_name: Optional[str] = None
     finance_bank_name: Optional[str] = None
     finance_financer_name: Optional[str] = None
+    discounted_price: Optional[Decimal] = None
+    payment_type: Optional[str] = None
+    down_payment: Optional[Decimal] = None
+    acc_helmet: Optional[bool] = None
+    acc_parking_cover: Optional[bool] = None
+    rsa_one_year: Optional[bool] = None
+    engine_warranty_years: Optional[int] = None
     status: QuotationStatus
     valid_until: Optional[datetime] = None
     created_at: datetime

@@ -125,6 +125,16 @@ export default function QuotationDetailPage() {
           <div className="fg"><div className="fg-label">Email</div><div className="fg-value">{quotation.email || '—'}</div></div>
           <div className="fg"><div className="fg-label">Colour</div><div className="fg-value">{quotation.color || '—'}</div></div>
           <div className="fg"><div className="fg-label">On Road Price</div><div className="fg-value">₹ {Number(quotation.on_road_price).toLocaleString()}</div></div>
+          {quotation.discounted_price != null && (
+            <div className="fg"><div className="fg-label">Discount / Offered Price <span style={{ color: '#B45309' }}>(internal)</span></div>
+              <div className="fg-value">₹ {Number(quotation.discounted_price).toLocaleString()}</div></div>)}
+          {quotation.engine_warranty_years != null && (<>
+            <div className="fg"><div className="fg-label">Payment</div><div className="fg-value">{quotation.payment_type === 'EMI' ? 'EMI / Finance' : 'Cash'}</div></div>
+            <div className="fg"><div className="fg-label">Down Payment</div><div className="fg-value">{quotation.down_payment != null ? `₹ ${Number(quotation.down_payment).toLocaleString()}` : '—'}</div></div>
+            <div className="fg"><div className="fg-label">Accessories</div><div className="fg-value">
+              {[quotation.acc_helmet && 'Studio Helmet', quotation.acc_parking_cover && 'Parking Cover', quotation.rsa_one_year && 'RSA 1 Yr'].filter(Boolean).join(', ') || 'None'}
+              {' · '}{quotation.engine_warranty_years} yr engine warranty</div></div>
+          </>)}
           <div className="fg"><div className="fg-label">HSPR Registration</div><div className="fg-value">{quotation.hspr_registration_type}</div></div>
           <div className="fg"><div className="fg-label">Sales Manager</div><div className="fg-value">{quotation.sales_manager_name || '—'}</div></div>
           <div className="fg"><div className="fg-label">Valid Until</div><div className="fg-value">{fmtDateTime(quotation.valid_until)}</div></div>

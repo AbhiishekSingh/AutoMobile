@@ -9,3 +9,8 @@ from app.modules.quotations import models as quotation_models  # noqa: F401
 from app.modules.notifications import models as notification_models  # noqa: F401
 from app.modules.audit import models as audit_models  # noqa: F401
 from app.modules.documents import models as document_models  # noqa: F401
+from app.modules.payments import models as payment_models  # noqa: F401
+from app.modules.handoffs import models as handoff_models  # noqa: F401
+from app.modules.stock import models as stock_models  # noqa: F401
+from app.modules.targets import models as target_models  # noqa: F401
+from app.modules.whatsapp import models as whatsapp_models  # noqa: F401

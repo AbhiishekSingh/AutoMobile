@@ -100,6 +100,8 @@ export default function ImportPage() {
               <Stat label="Test rides created" value={result.test_rides_created} />
               <Stat label="Salesperson matched" value={result.salesperson_matched} accent="#059669" />
               <Stat label="Salesperson unmatched" value={result.salesperson_unmatched} accent="#D97706" />
+              <Stat label="Put in unassigned pool" value={result.unassigned_pool ?? 0} accent="#D97706" />
+              <Stat label="PBA from another branch" value={result.cross_branch ?? 0} accent="#D97706" />
               <Stat label="Skipped (duplicates)" value={result.skipped_duplicates} accent="#D97706" />
               <Stat label="Skipped (invalid)" value={result.skipped_invalid} accent="#DC2626" />
             </div>

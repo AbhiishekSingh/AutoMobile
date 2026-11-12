@@ -132,6 +132,12 @@ def build_quotation_pdf(quotation: Quotation, branch_name: str, branch_address: 
     story.append(model_row)
     story.append(Spacer(1, 4))
     story.append(Paragraph(f"<b>ON ROAD PRICE :</b> Rs. {quotation.on_road_price:,.0f}", normal))
+    if quotation.down_payment:
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(f"<b>DOWN PAYMENT :</b> Rs. {quotation.down_payment:,.0f}", normal))
+    if quotation.engine_warranty_years is not None:      # new-style quotation
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(f"<b>PAYMENT :</b> {'EMI / FINANCE' if quotation.payment_type == 'EMI' else 'CASH'}", normal))
     story.append(Spacer(1, 8))
 
     reg_labels = {"REGULAR": "REGULAR NO.", "CHOICE": "CHOICE NO.", "BH_PASSING": "BH PASSING NO."}
@@ -164,6 +170,22 @@ def build_quotation_pdf(quotation: Quotation, branch_name: str, branch_address: 
     ]))
     story.append(inc_table)
 
+    # accessories / warranty the customer gets, from the tick boxes (new quotations).
+    # NOTE: the discounted price is deliberately never printed anywhere in this PDF.
+    if quotation.engine_warranty_years is not None:
+        yes = lambda ok: ('<font color="#2e9e4f"><b>INCLUDED</b></font>' if ok
+                          else '<font color="#d92626"><b>NOT INCLUDED</b></font>')
+        w = quotation.engine_warranty_years
+        acc = [("Studio Helmet", yes(quotation.acc_helmet)), ("Parking Cover", yes(quotation.acc_parking_cover)),
+               ("RSA (Road Side Assistance) - 1 Year", yes(quotation.rsa_one_year)),
+               (f"{w} Years Engine Warranty" + (" (KTM 5 yr + 5 yr Extended)" if w == 10 else " (KTM standard)"),
+                yes(True))]
+        acc_table = Table([[Paragraph(a, normal), Paragraph(b, normal)] for a, b in acc], colWidths=[130 * mm, 50 * mm])
+        acc_table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.75, BORDER_ORANGE),
+                                       ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                       ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+        story.append(acc_table)
+
     # ---------------- PAGE 2 ----------------
     story.append(PageBreak())
     story.append(_header_block(branch_name))
@@ -174,9 +196,13 @@ def build_quotation_pdf(quotation: Quotation, branch_name: str, branch_address: 
                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
     story.append(section2)
     story.append(Spacer(1, 10))
-    story.append(Paragraph(f"<b>BANK NAME :</b> {quotation.finance_bank_name or '-'}", normal))
+    cash_only = quotation.payment_type != "EMI" and quotation.engine_warranty_years is not None   # old quotations keep their EMI table
+    if cash_only:
+        story.append(Paragraph("Payment option chosen: <b>CASH</b> - no finance / EMI required.", normal))
+        story.append(Spacer(1, 10))
+    story.append(Paragraph(f"<b>BANK NAME :</b> {quotation.finance_bank_name or '-'}", normal)) if not cash_only else None
     story.append(Spacer(1, 4))
-    story.append(Paragraph(f"<b>FINANCER NAME :</b> {quotation.finance_financer_name or '-'}", normal))
+    story.append(Paragraph(f"<b>FINANCER NAME :</b> {quotation.finance_financer_name or '-'}", normal)) if not cash_only else None
     story.append(Spacer(1, 10))
 
     emi_header = ["TENURE (Months)", "DOWN PAYMENT", "MONTHLY EMI", "ROI %"]
@@ -197,7 +223,8 @@ def build_quotation_pdf(quotation: Quotation, branch_name: str, branch_address: 
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
-    story.append(emi_table)
+    if not cash_only:
+        story.append(emi_table)
     story.append(Spacer(1, 14))
 
     # Only the documents the user actually checked as "required" belong on

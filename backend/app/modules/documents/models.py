@@ -22,6 +22,8 @@ class DocumentType(str, enum.Enum):
     CHEQUE = "CHEQUE"
     GST_CERTIFICATE = "GST_CERTIFICATE"
     IT_RETURN = "IT_RETURN"
+    TAX_INVOICE = "TAX_INVOICE"             # insurance: vehicle tax invoice
+    AADHAAR_FB = "AADHAAR_FB"               # insurance (BAGIC): Aadhaar front + back in ONE pdf
     OTHER = "OTHER"
 
 

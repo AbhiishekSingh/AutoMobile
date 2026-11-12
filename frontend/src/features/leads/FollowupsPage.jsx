@@ -79,7 +79,7 @@ export default function FollowupsPage() {
                   <td>{f.model_name || '—'}</td>
                   <td>{f.opportunity_status || '—'}</td>
                   <td>{f.disposition || '—'}</td>
-                  <td><Sla flag={f.sla_flag} /></td>
+                  <td><Sla flag={f.sla_flag} state={f.sla_state} /></td>
                 </tr>
               ))}
             </tbody>

@@ -48,11 +48,42 @@ def seed_defaults(db: Session, quotation: Quotation) -> None:
                                  document_name=name, required=True))
 
 
+def check_choices(data: dict) -> None:
+    """Validate the cash/EMI choice, warranty years and money fields (raises ValueError)."""
+    if data.get("payment_type") is not None and data["payment_type"] not in ("CASH", "EMI"):
+        raise ValueError("Payment must be Cash or EMI")
+    if data.get("engine_warranty_years") is not None and data["engine_warranty_years"] not in (5, 10):
+        raise ValueError("Engine warranty must be 5 or 10 years")
+    for f in ("discounted_price", "down_payment"):
+        if data.get(f) is not None and data[f] < 0:
+            raise ValueError("Amounts cannot be negative")
+    price, disc, down = data.get("on_road_price"), data.get("discounted_price"), data.get("down_payment")
+    if price is not None and disc is not None and disc > price:
+        raise ValueError("The discounted price cannot be more than the on-road price")
+    if disc is not None and down is not None and down > disc:
+        raise ValueError("The down payment cannot be more than the discounted price")
+    if price is not None and down is not None and disc is None and down > price:
+        raise ValueError("The down payment cannot be more than the on-road price")
+
+
+def monthly_emi(loan, tenure_months: int, roi_percent):
+    """Standard reducing-balance EMI. roi_percent is the yearly rate typed in by the PBA."""
+    from decimal import Decimal
+    loan, roi = Decimal(loan), Decimal(roi_percent)
+    if loan <= 0 or tenure_months <= 0:
+        return None
+    r = roi / Decimal(1200)
+    if r == 0:
+        return (loan / tenure_months).quantize(Decimal("1"))
+    f = (1 + r) ** tenure_months
+    return (loan * r * f / (f - 1)).quantize(Decimal("1"))
+
+
 def mark_lead_quoted(lead: Lead) -> None:
-    """Advance the lead to QUOTED unless it has already moved past that stage."""
-    advanced_stages = {EnquiryStage.BOOKED, EnquiryStage.INVOICED, EnquiryStage.CLOSED}
-    if lead.enquiry_stage not in advanced_stages:
-        lead.enquiry_stage = EnquiryStage.QUOTED
+    """Kept so existing callers still work. Creating a quotation no longer
+    changes the lead's stage (QUOTED was removed from the journey) — whether
+    a quotation was shared is tracked by the quotation's own status."""
+    return None
 
 def default_valid_until():
-    return now_ist() + timedelta(days=VALIDITY_DAYS)
+    return now_ist() + timedelta(days=VALIDITY_DAYS)

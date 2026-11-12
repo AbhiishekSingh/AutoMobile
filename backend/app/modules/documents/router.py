@@ -24,7 +24,8 @@ from app.modules.users.access import MANAGER_ROLES, SALES_ROLES, get_visible_lea
 from app.modules.users.models import AppUser
 
 router = APIRouter(tags=["documents"])
-READ_ROLES = SALES_ROLES + MANAGER_ROLES
+READ_ROLES = SALES_ROLES + MANAGER_ROLES + ("INSURANCE",)
+INSURANCE_DOC_TYPES = ("TAX_INVOICE", "AADHAAR", "AADHAAR_FB", "PAN")
 UPLOAD_ROLES = SALES_ROLES
 
 
@@ -41,6 +42,8 @@ def _visible_document(db: Session, user: AppUser, doc_id: int) -> CustomerDocume
     if not doc:
         raise HTTPException(404, "Document not found")
     get_visible_lead(db, user, doc.lead_id)   # 404 if this user can't see the lead
+    if user.role.value == "INSURANCE" and doc.doc_type not in INSURANCE_DOC_TYPES:
+        raise HTTPException(404, "Document not found")   # the insurance team only opens insurance papers
     return doc
 
 
@@ -57,8 +60,10 @@ def document_settings():
 def list_documents(lead_id: int, user: AppUser = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     get_visible_lead(db, user, lead_id)
-    rows = (db.query(CustomerDocument).filter(CustomerDocument.lead_id == lead_id)
-            .order_by(CustomerDocument.uploaded_at.desc()).all())
+    q = db.query(CustomerDocument).filter(CustomerDocument.lead_id == lead_id)
+    if user.role.value == "INSURANCE":
+        q = q.filter(CustomerDocument.doc_type.in_(INSURANCE_DOC_TYPES))
+    rows = q.order_by(CustomerDocument.uploaded_at.desc()).all()
     return [_out(d) for d in rows]
 
 

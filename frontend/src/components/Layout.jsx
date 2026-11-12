@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import NotificationBell from './NotificationBell'
+import DeliveryReminderPopup from '../features/handoffs/DeliveryReminderPopup'
+import IdleLock from '../features/branch/IdleLock'
 
 const initials = (name) =>
   (name || '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
@@ -89,23 +91,42 @@ const PBA_MENU = [
   {                   icon: <NavIco src="navbar/06-bookings.png"   w={18} h={18} alt="bookings"    />, label: 'Bookings'  },
   {                   icon: <NavIco src="navbar/08-invoices.png"   w={18} h={18} alt="invoices"    />, label: 'Invoices'  },
   {                   icon: <NavIco src="navbar/09-deliveries.png" w={18} h={18} alt="deliveries"  />, label: 'Deliveries'},
-  {                   icon: <NavIco src="navbar/10-targets.png"    w={18} h={18} alt="targets"     />, label: 'Targets'   },
+  { to: '/targets', icon: <NavIco src="navbar/10-targets.png"    w={18} h={18} alt="targets"     />, label: 'Targets', live: true },
   {                   icon: <NavIco src="navbar/11-reports.png"    w={18} h={18} alt="reports"     />, label: 'Reports'   },
 ]
 
 // Admin menu
 const ADMIN_MENU = [
   { to: '/admin',        icon: <UsersIcon w={20} h={18} />,  label: 'Users',        live: true },
+  { to: '/admin/branches', icon: <UsersIcon w={20} h={18} />,  label: 'Branches',     live: true },
   { to: '/admin/import', icon: <ImportIcon w={18} h={20} />, label: 'Import Leads', live: true },
   { to: '/admin/activity-log', icon: <ActivityIcon w={18} h={18} />, label: 'Activity Log', live: true },
+  { to: '/owner/dashboard', icon: <ActivityIcon w={18} h={18} />, label: 'Owner report', live: true },
+  { to: '/accounts', icon: <ActivityIcon w={18} h={18} />, label: 'Accounts', live: true },
+  { to: '/cre-reports', icon: <ActivityIcon w={18} h={18} />, label: 'CRE reports', live: true },
+  { to: '/stock', icon: <ActivityIcon w={18} h={18} />, label: 'Stock', live: true },
+  { to: '/targets', icon: <ActivityIcon w={18} h={18} />, label: 'Targets', live: true },
+  { to: '/whatsapp-settings', icon: <ActivityIcon w={18} h={18} />, label: 'WhatsApp links', live: true },
   {                      icon: <SettingsIcon w={18} h={18} />, label: 'Settings'                 },
 ]
 
-const MENU_BY_ROLE = { PBA: PBA_MENU, CRE: PBA_MENU, ADMIN: ADMIN_MENU }   // CRE uses the PBA screens
+// Owner and RTO: their worklist (approvals / registrations). More items come with their dashboards.
+const STOCK_ITEM = { to: '/stock', icon: <ActivityIcon w={18} h={18} />, label: 'Stock', live: true }
+const TARGET_ITEM = { to: '/targets', icon: <ActivityIcon w={18} h={18} />, label: 'Targets', live: true }
+const WA_ITEM = { to: '/whatsapp-settings', icon: <ActivityIcon w={18} h={18} />, label: 'WhatsApp links', live: true }
+const ACCOUNTS_ITEM = { to: '/accounts', icon: <ActivityIcon w={18} h={18} />, label: 'Accounts', live: true }
+const CRE_REPORT_ITEM = { to: '/cre-reports', icon: <ActivityIcon w={18} h={18} />, label: 'CRE reports', live: true }
+const OWNER_MENU = [{ to: '/owner/dashboard', icon: <ActivityIcon w={18} h={18} />, label: 'Dashboard', live: true }, { to: '/owner', icon: <ActivityIcon w={18} h={18} />, label: 'Approvals', live: true }, ACCOUNTS_ITEM, CRE_REPORT_ITEM, STOCK_ITEM, TARGET_ITEM, WA_ITEM]
+const GM_MENU = [ACCOUNTS_ITEM, CRE_REPORT_ITEM, STOCK_ITEM, TARGET_ITEM, WA_ITEM]
+const RTO_MENU   = [{ to: '/rto',   icon: <ActivityIcon w={18} h={18} />, label: 'Registrations', live: true }]
+
+const INSURANCE_MENU = [{ to: '/insurance', icon: <ActivityIcon w={18} h={18} />, label: 'Insurance', live: true }]
+const MENU_BY_ROLE = { INSURANCE: INSURANCE_MENU, PBA: PBA_MENU, CRE: PBA_MENU, ADMIN: ADMIN_MENU, OWNER: OWNER_MENU, GM: GM_MENU, RTO: RTO_MENU }   // CRE uses the PBA screens
 const COLLAPSE_KEY = 'sk-crm-sidebar-collapsed'
 
 export default function Layout({ title, sub, back, children }) {
-  const { user, logout } = useAuth()
+  const { user, logout, switchPba } = useAuth()
+  const navigate = useNavigate()
   const location = useLocation()
   const MENU = MENU_BY_ROLE[user?.role] || null
 
@@ -150,7 +171,7 @@ export default function Layout({ title, sub, back, children }) {
         <nav className="nav">
           {MENU ? MENU.map((m) =>
             m.live ? (
-              <NavLink key={m.label} to={m.to} title={m.label}
+              <NavLink key={m.label} to={m.to} end={m.to === '/owner'} title={m.label}
                 className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
                 <span className="nav-ico">{m.icon}</span>
                 <span className="nav-label">{m.label}</span>
@@ -235,11 +256,14 @@ export default function Layout({ title, sub, back, children }) {
                 <div className="user-role">{user?.role}</div>
               </div>
             </div>
+            {user?.via_branch && <button className="btn btn-outline btn-sm" onClick={async () => { await switchPba(); navigate('/branch', { replace: true }) }}>Switch PBA</button>}
             <button className="btn btn-outline btn-sm" onClick={logout}>Sign out</button>
           </div>
         </div>
         <div className="content">{children}</div>
+        <DeliveryReminderPopup />
+        <IdleLock />
       </div>
     </div>
   )
-}
+}

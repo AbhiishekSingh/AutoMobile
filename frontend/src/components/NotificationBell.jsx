@@ -121,7 +121,7 @@ export default function NotificationBell() {
     // the Leads list instead, which sorts newest-enquiry-first by default,
     // putting the just-imported leads right at the top.
     if (n.reference_type === 'lead' && n.reference_id) {
-      navigate(`/leads/${n.reference_id}`)
+      navigate(['PBA', 'CRE'].includes(user?.role) ? `/leads/${n.reference_id}` : `/handoff/${n.reference_id}`)
     } else if (n.reference_type === 'lead_import') {
       navigate('/leads')
     }
