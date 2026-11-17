@@ -67,7 +67,11 @@ export default function PaymentSection({ leadId, opportunityStatus, onChanged })
 
   const isBookingDone = /BOOKING\s*DONE/i.test(opportunityStatus || '')
   if (sum === null) return null                             // loading: show nothing yet
-  if (sum === false || (!sum.booking_no && !isBookingDone)) return null   // not at booking stage
+  if (sum === false || (!sum.booking_no && !isBookingDone)) return (   // not at booking stage yet: say so instead of a blank tab
+    <div className="card"><div className="card-pad">
+      <b>Booking &amp; payment have not started yet</b>
+      <div className="muted-note" style={{ marginTop: 6 }}>This section opens once the customer books the bike. Create a quotation in the Quotations tab and set the opportunity status to Booking Done; the booking number and payments are recorded here after that.</div>
+    </div></div>)
 
   const mode = sum.modes.find((m) => m.value === form.mode)
   const setF = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))

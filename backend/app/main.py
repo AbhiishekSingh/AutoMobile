@@ -17,6 +17,7 @@ from app.modules.audit.router import router as audit_router
 from app.modules.documents.router import router as documents_router
 from app.modules.payments.router import router as payments_router
 from app.modules.handoffs.router import router as handoffs_router
+from app.modules.owner_flow.router import router as owner_flow_router
 from app.modules.stock.router import router as stock_router
 from app.modules.targets.router import router as targets_router
 from app.modules.whatsapp.router import router as whatsapp_router
@@ -29,6 +30,10 @@ from app.modules.accounts.router import router as accounts_router
 from app.modules.invoice_read.router import router as invoice_read_router
 from app.modules.final_review.router import router as final_review_router
 from app.modules.cre_reports.router import router as cre_reports_router
+from app.modules.rto_docs.router import router as rto_docs_router
+from app.modules.sync_log.router import router as sync_log_router
+from app.modules.gm.router import router as gm_router
+from app.modules.cre_reports.worklist import router as cre_worklist_router
 from app.modules.payments.public_router import router as payments_public_router
 from app.modules.leads.service import sync_dropdown_lists
 
@@ -54,6 +59,7 @@ app.include_router(audit_router)
 app.include_router(documents_router)
 app.include_router(payments_router)
 app.include_router(handoffs_router)
+app.include_router(owner_flow_router)
 app.include_router(stock_router)
 app.include_router(targets_router)
 app.include_router(whatsapp_router)
@@ -66,6 +72,10 @@ app.include_router(accounts_router)
 app.include_router(invoice_read_router)
 app.include_router(final_review_router)
 app.include_router(cre_reports_router)
+app.include_router(rto_docs_router)
+app.include_router(sync_log_router)
+app.include_router(gm_router)
+app.include_router(cre_worklist_router)
 app.include_router(payments_public_router)
 
 

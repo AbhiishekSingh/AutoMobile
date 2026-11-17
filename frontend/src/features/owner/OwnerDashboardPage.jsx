@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { Loading, fmtDateTime } from '../../components/ui'
 import api from '../../lib/api'
+import GmSections from '../gm/GmSections'
 
 const PERIODS = [['day', 'Daily'], ['week', 'Weekly'], ['month', 'Monthly'], ['quarter', 'Quarterly'], ['year', 'Yearly']]
 const KINDS = [['PAYMENT', 'Payment pending'], ['INSURANCE', 'Insurance pending'], ['RTO', 'RTO pending'],
@@ -28,7 +29,8 @@ const Growth = ({ g }) => g === null || g === undefined ? <span className="muted
   <span style={{ fontWeight: 600, color: g >= 0 ? '#12703f' : '#b42318' }}>{g >= 0 ? '▲' : '▼'} {Math.abs(g)}%</span>
 const R = { textAlign: 'right' }
 
-export default function OwnerDashboardPage() {
+export default function OwnerDashboardPage({ gm = false }) {
+  const TITLE = gm ? 'GM dashboard' : 'Owner dashboard'
   const nav = useNavigate()
   const [period, setPeriod] = useState('month')
   const [on, setOn] = useState(today())
@@ -58,13 +60,13 @@ export default function OwnerDashboardPage() {
     } finally { setBusy(false) }
   }
 
-  if (d === null) return <Layout title="Owner dashboard"><Loading /></Layout>
-  if (d === false) return <Layout title="Owner dashboard"><div className="hint">Could not load the dashboard.</div></Layout>
+  if (d === null) return <Layout title={TITLE}><Loading /></Layout>
+  if (d === false) return <Layout title={TITLE}><div className="hint">Could not load the dashboard.</div></Layout>
   const A = d.accounting
   const Th = ({ children, r }) => <th style={r ? R : undefined}>{children}</th>
 
   return (
-    <Layout title="Owner dashboard" sub={`${d.branch_name || 'All branches'} · ${d.label}`}>
+    <Layout title={TITLE} sub={`${d.branch_name || 'All branches'} · ${d.label}`}>
       <style>{`@media print{.sidebar,.topbar,.no-print{display:none!important}.main{margin:0!important}.content{padding:0!important}.table-wrap{overflow:visible!important}}`}</style>
 
       <div className="no-print" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
@@ -195,6 +197,7 @@ export default function OwnerDashboardPage() {
           </div>
         </div>
       </div>
+      {gm && <GmSections start={iso(new Date(d.start))} end={iso(new Date(d.end))} branch={branch} />}
     </Layout>
   )
 }

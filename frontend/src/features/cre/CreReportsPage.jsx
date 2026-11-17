@@ -33,7 +33,8 @@ function ReviewLog({ params }) {
         {rows === null && <Loading />}{rows && !rows.length && <Empty>No review links sent in this period.</Empty>}</div></div>)
 }
 
-export default function CreReportsPage() {
+export default function CreReportsPage({ dashboard = false }) {
+  const PAGE = dashboard ? 'CRE Dashboard' : 'CRE reports'
   const [f, setF] = useState({ date_from: iso(new Date(today.getFullYear(), today.getMonth(), 1)), date_to: iso(today), cre_id: '', branch_id: '', source: '', opportunity_status_id: '', disposition_id: '' })
   const [d, setD] = useState(null)
   const [drill, setDrill] = useState(null)
@@ -49,11 +50,11 @@ export default function CreReportsPage() {
     const r = await api.get('/cre-reports/export', { params, responseType: 'blob' })
     const a = document.createElement('a'); a.href = URL.createObjectURL(r.data); a.download = `cre-report-${f.date_from}-${f.date_to}.xlsx`; a.click()
   }
-  if (d === null) return <Layout title="CRE reports"><Loading /></Layout>
-  if (d === false) return <Layout title="CRE reports"><div className="hint">Could not load the report.</div></Layout>
+  if (d === null) return <Layout title={PAGE}><Loading /></Layout>
+  if (d === false) return <Layout title={PAGE}><div className="hint">Could not load the report.</div></Layout>
   const T = d.total, o = d.options, rv = d.review
   return (
-    <Layout title="CRE reports" sub="Workload comes from each CRE's branches; calls, quotations and review links are what the CRE personally did">
+    <Layout title={PAGE} sub="Workload comes from each CRE's branches; calls, quotations and review links are what the CRE personally did">
       <div className="card" style={{ marginBottom: 14 }}><div className="card-header" style={{ flexWrap: 'wrap', gap: 8 }}>
         <input className="input" type="date" style={{ maxWidth: 140 }} value={f.date_from} onChange={set('date_from')} /><input className="input" type="date" style={{ maxWidth: 140 }} value={f.date_to} onChange={set('date_to')} />
         <select className="input" style={{ maxWidth: 160 }} value={f.cre_id} onChange={set('cre_id')}><option value="">All CREs</option>{o.cres.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>

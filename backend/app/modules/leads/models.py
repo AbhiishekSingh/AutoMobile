@@ -196,6 +196,8 @@ class LeadFollowup(Base):
     disposition_id = Column(Integer, ForeignKey("disposition.id"))
     opportunity_status_id = Column(Integer, ForeignKey("opportunity_status.id"))
     next_followup_at = Column(DateTime)
+    call_outcome = Column(String)          # CRE call: what happened on the call
+    customer_feedback = Column(Text)       # CRE call: what the customer said
     created_at = Column(DateTime, default=now_ist)
 
     lead = relationship("Lead", back_populates="followups")

@@ -20,6 +20,14 @@ export function Sla({ flag, state }) {
   return <span className={`badge ${s.cls}`}>{s.label}</span>
 }
 
+// FastAPI sends a string for our own errors but a LIST of objects for validation errors; never render those raw.
+export function errText(e, fallback = 'Could not save.') {
+  const d = e?.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) return d.map((x) => (x?.msg || '').replace(/^Value error, /, '')).filter(Boolean).join('; ') || fallback
+  return fallback
+}
+
 export function Empty({ children = 'No data yet.' }) {
   return (
     <div style={{ padding: '34px 18px', textAlign: 'center', color: 'var(--muted)' }}>

@@ -57,18 +57,10 @@ def is_booking_done(lead: Lead) -> bool:
 
 def ensure_insurance_case(db, lead: Lead, actor_id=None) -> InsuranceCase:
     """Called when a lead reaches BOOKING DONE: the insurance file starts straight away."""
-    case = db.query(InsuranceCase).filter(InsuranceCase.lead_id == lead.lead_id).first()
-    if case:
-        return case
-    case = InsuranceCase(lead_id=lead.lead_id, status="PENDING")
-    db.add(case); db.flush()
-    _notify(db, _ids(db, [Role.CRE], lead.branch_id), NotificationType.INSURANCE_STARTED,
-            "New booking: insurance to be processed",
-            f"{_who(lead)} is BOOKING DONE. Please start the insurance.", lead, actor_id)
-    _notify(db, _ids(db, [Role.INSURANCE]), NotificationType.INSURANCE_STARTED,
-            "New booking: insurance to be processed",
-            f"{_who(lead)} is BOOKING DONE. Please start the insurance.", lead, actor_id)
-    return case
+    from app.modules.owner_flow import service as of
+    new = of.start_initial(db, lead, actor_id)          # the Owner's initial approval comes first
+    of.maybe_start_insurance(db, lead, actor_id)        # insurance only after approval + payment + documents
+    return new
 
 
 def get_case(db, model, lead_id):
@@ -97,6 +89,8 @@ def complete_insurance(db, lead: Lead, c: InsuranceCase, *, policy_no, start, ex
     gap = missing_documents(db, lead, c)
     if gap:
         raise HTTPException(400, "Upload the required documents first: " + ", ".join(gap))
+    if not c.docs_verified_at:
+        raise HTTPException(400, "Mark the documents as verified first")
     policy_no = (policy_no or "").strip()
     if not policy_no:
         raise HTTPException(400, "Policy number is required")
@@ -113,19 +107,18 @@ def complete_insurance(db, lead: Lead, c: InsuranceCase, *, policy_no, start, ex
                                                                 saved["size_bytes"])
     c.status, c.completed_at, c.completed_by_user_id = "COMPLETED", now_ist(), user.user_id
     c.updated_by_user_id = user.user_id
-    # the file now moves to the RTO
-    if not get_case(db, RtoCase, lead.lead_id):
-        db.add(RtoCase(lead_id=lead.lead_id, status="PENDING",
-                       registration_type=_quoted_reg_type(db, lead)))
+    # the file now goes to the Owner for the FINAL approval (the RTO gets it only after that)
+    from app.modules.owner_flow import service as of
+    of.request_final(db, lead, user.user_id)
     company = POLICY_TYPES[c.policy_type][1]
     msg = (f"{_who(lead)}: {company} policy {policy_no} is ready (valid till {expiry:%d-%m-%Y}). "
            "The insurance PDF is on the lead page.")
     _notify(db, [lead.assigned_user_id], NotificationType.INSURANCE_DONE, "Insurance policy uploaded",
             msg, lead, user.user_id)
     db.flush()
+    from app.modules.whatsapp import service as wa      # WhatsApp alert to the PBA (never blocks the policy)
+    wa.auto_send(db, "INSURANCE_PBA", lead, user=user, recipient="PBA")
     sync_stage(db, lead, user.user_id)
-    _notify(db, _ids(db, [Role.RTO]), NotificationType.INSURANCE_DONE,
-            "Insurance done: RTO to start", msg, lead, user.user_id)
 
 
 def _quoted_reg_type(db, lead):
@@ -140,10 +133,21 @@ def update_rto(db, lead: Lead, rto: RtoCase, data: dict, user):
     if "status" in data and data["status"] not in RTO_STATUSES:
         raise HTTPException(400, "Unknown RTO status")
     before_no, before_dd = rto.registration_no, rto.delivery_date
-    for k in ("status", "registration_type", "registration_no", "registration_date", "delivery_date"):
+    if data.get("status") in ("IN_PROCESS", "REGISTERED") and rto.status != data["status"]:
+        from app.modules.rto_docs import service as rd
+        from app.modules.rto_docs.models import RtoDocProfile
+        prof = db.query(RtoDocProfile).filter(RtoDocProfile.lead_id == lead.lead_id).first()
+        gap = rd.missing(db, lead.lead_id, prof)
+        if gap:
+            raise HTTPException(400, "RTO documents are incomplete: " + ", ".join(gap))
+    for k in ("status", "registration_type", "choice_number", "registration_no", "registration_date", "delivery_date"):
         if k in data:
             v = data[k]
             setattr(rto, k, (v.strip() or None) if isinstance(v, str) else v)
+    if rto.registration_type != "CHOICE":
+        rto.choice_number = None
+    elif rto.status == "REGISTERED" and not rto.choice_number:
+        raise HTTPException(400, "Enter the Choice number to mark it Registered")
     if rto.status == "REGISTERED" and not rto.registration_no:
         raise HTTPException(400, "Enter the registration number to mark it Registered")
     if rto.registration_no and not rto.registration_date:
@@ -274,6 +278,8 @@ def save_invoice(db, lead: Lead, d: dict, saved, user) -> InvoiceDetail:
         raise HTTPException(400, "Upload the invoice copy")
     if d.get("registration_type") not in (None, "", *REG_TYPES):
         raise HTTPException(400, "Unknown registration type")
+    if d.get("registration_type") == "CHOICE" and (d.get("choice_number") or "").strip() and len(d["choice_number"].strip()) > 10:
+        raise HTTPException(400, "Choice number looks too long")
     if d.get("invoice_date") and d["invoice_date"] > date.today():
         raise HTTPException(400, "The invoice date cannot be in the future")
     if d.get("delivery_date") and d["delivery_date"] < date.today() and not (row and row.delivery_date == d["delivery_date"]):
@@ -287,7 +293,7 @@ def save_invoice(db, lead: Lead, d: dict, saved, user) -> InvoiceDetail:
                             created_by_user_id=user.user_id)
         db.add(row)
     row.chassis_no, row.engine_no = chassis, engine
-    for k in ("invoice_no", "registration_type", "hypothecation", "nominee_name", "nominee_relation", "insurance_addon"):
+    for k in ("invoice_no", "registration_type", "choice_number", "hypothecation", "nominee_name", "nominee_relation", "insurance_addon"):
         v = d.get(k)
         setattr(row, k, (v.strip() or None) if isinstance(v, str) else v)
     row.invoice_date, row.delivery_date = d.get("invoice_date"), d.get("delivery_date")
@@ -317,6 +323,8 @@ def _push_invoice_details(db, lead: Lead, inv: InvoiceDetail) -> None:
     if rto:
         if inv.registration_type:
             rto.registration_type = inv.registration_type
+        if inv.choice_number:
+            rto.choice_number = inv.choice_number
         if inv.delivery_date and not rto.delivery_date:
             rto.delivery_date = inv.delivery_date
 
@@ -349,11 +357,12 @@ def panel(db, lead: Lead) -> dict:
             "status": rto.status, "status_label": RTO_STATUSES.get(rto.status),
             "registration_type": rto.registration_type,
             "registration_type_label": REG_TYPES.get(rto.registration_type),
+            "choice_number": rto.choice_number,
             "registration_no": rto.registration_no, "registration_date": _d(rto.registration_date),
             "delivery_date": _d(rto.delivery_date)},
         "invoice": None if not inv else {
             "invoice_no": inv.invoice_no, "invoice_date": _d(inv.invoice_date), "chassis_no": inv.chassis_no,
-            "engine_no": inv.engine_no, "registration_type": inv.registration_type,
+            "engine_no": inv.engine_no, "registration_type": inv.registration_type, "choice_number": inv.choice_number,
             "hypothecation": inv.hypothecation, "nominee_name": inv.nominee_name,
             "nominee_relation": inv.nominee_relation, "insurance_addon": inv.insurance_addon,
             "delivery_date": _d(inv.delivery_date), "file_name": inv.file_original_name,

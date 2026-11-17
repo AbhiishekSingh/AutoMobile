@@ -33,8 +33,11 @@ from app.modules.users.models import AppUser, Role, UserBranch
 ALLOWED_NEXT: dict[S, set[S]] = {
     S.OPEN:           {S.BOOKED, S.CLOSED},
     S.BOOKED:         {S.INSURANCE_DONE, S.CLOSED},        # CLOSED = booking cancelled
-    S.INSURANCE_DONE: {S.RTO_DONE, S.CLOSED},
-    S.RTO_DONE:       {S.INVOICED, S.CLOSED},
+    # SAME-DAY DELIVERY: the Delivery Challan opens once the final Owner approval is given, even though the
+    # RTO registration (number plate / RC) is still pending, so a bike can be delivered straight from
+    # INSURANCE_DONE or RTO_DONE. RTO registration carries on afterwards on the RTO worklist.
+    S.INSURANCE_DONE: {S.RTO_DONE, S.DELIVERED, S.CLOSED},
+    S.RTO_DONE:       {S.INVOICED, S.DELIVERED, S.CLOSED},
     S.INVOICED:       {S.DELIVERED, S.CLOSED},
     S.DELIVERED:      {S.CLOSED},                          # CRE final review closes it
     S.CLOSED:         {S.OPEN},                            # a closed lead can be reopened

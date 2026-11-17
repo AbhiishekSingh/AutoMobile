@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db, require_roles
+from app.modules.leads.models import Lead
 from app.modules.users.access import get_visible_lead
 from app.modules.users.models import AppUser, Branch
 from app.modules.whatsapp import client, service as svc
@@ -29,7 +30,13 @@ def _out(db, m):
 def _go(db, user, lead_id, kind, roles, **kw):
     if user.role.value not in roles:
         raise HTTPException(403, "You can't send this message")
-    lead = get_visible_lead(db, user, lead_id)
+    if user.role.value == "RTO":
+        from app.modules.handoffs.models import RtoCase
+        lead = db.get(Lead, lead_id)
+        if not lead or not db.query(RtoCase).filter(RtoCase.lead_id == lead_id).first():
+            raise HTTPException(404, "Lead not found")
+    else:
+        lead = get_visible_lead(db, user, lead_id)
     row = svc.send(db, kind, lead, user=user, **kw)
     # delivery receipt sent OK -> engagement links follow automatically (once)
     if kind == "DELIVERY" and row.status != "FAILED":
@@ -68,6 +75,11 @@ def send_engagement(lead_id: int, user: AppUser = Depends(get_current_user), db:
 @router.post("/leads/{lead_id}/whatsapp/review")
 def send_review(lead_id: int, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     return _go(db, user, lead_id, "REVIEW", ALL)
+
+
+@router.post("/leads/{lead_id}/whatsapp/rto-docs")
+def send_rto_docs(lead_id: int, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _go(db, user, lead_id, "RTO_DOCS", ("PBA", "CRE", "RTO", "OWNER", "GM", "ADMIN"))
 
 
 @router.post("/leads/{lead_id}/whatsapp/welcome")

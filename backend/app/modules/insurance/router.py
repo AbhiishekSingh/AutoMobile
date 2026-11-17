@@ -130,6 +130,7 @@ def case_detail(lead_id: int, user: AppUser = Depends(get_current_user), db: Ses
                    "policy_no": case.policy_no, "start": case.policy_start, "expiry": case.policy_expiry,
                    "premium": case.premium, "created_at": case.completed_at,
                    "executive": case.completed_by.full_name if case.completed_by else None},
+        "docs_verified": {"at": case.docs_verified_at, "by": case.docs_verified_by.full_name if case.docs_verified_by else None},
         "can_edit": user.role.value in ("INSURANCE", "ADMIN", "CRE") and case.status != "COMPLETED",
         "can_send_whatsapp": user.role.value in ("INSURANCE", "ADMIN", "CRE") and case.status == "COMPLETED" and bool(case.pdf_stored_path),
         "options": {"policy_types": [{"value": k, "label": v[0]} for k, v in hsvc.POLICY_TYPES.items()],
@@ -154,10 +155,38 @@ def upload_doc(lead_id: int, doc_type: str = Form(...), file: UploadFile = File(
             docs.delete_file(old.stored_path); db.delete(old)
         db.add(CustomerDocument(lead_id=lead_id, customer_id=lead.customer_id, doc_type=doc_type,
                                 note="Insurance", uploaded_by_user_id=user.user_id, **saved))
+        case.docs_verified_at = case.docs_verified_by_user_id = None      # a new file needs verifying again
         if case.status == "PENDING":
             case.status = "IN_PROGRESS"
         case.updated_by_user_id = user.user_id
         db.commit()
     except Exception:
         db.rollback(); docs.delete_file(saved["stored_path"]); raise
+    return {"ok": True}
+
+
+@router.post("/insurance/cases/{lead_id}/verify-documents", dependencies=[Depends(require_roles(*WRITE))])
+def verify_documents(lead_id: int, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Workflow step: documents uploaded + nominee entered -> documents verified (then the policy can be created)."""
+    from app.core.database import now_ist
+    lead = get_visible_lead(db, user, lead_id)
+    case = hsvc.get_case(db, InsuranceCase, lead_id)
+    if not case:
+        raise HTTPException(404, "No insurance file for this customer yet")
+    if case.status == "COMPLETED":
+        raise HTTPException(400, "The insurance is already completed")
+    if case.policy_type not in svc.REQUIRED_DOCS:
+        raise HTTPException(400, "Select the insurance policy type first")
+    gap = svc.missing_documents(db, lead, case)
+    if gap:
+        raise HTTPException(400, "Upload the required documents first: " + ", ".join(gap))
+    miss = hsvc.check_nominee(case)
+    if miss:
+        raise HTTPException(400, "Enter the nominee details first: " + ", ".join(miss))
+    case.docs_verified_at, case.docs_verified_by_user_id, case.updated_by_user_id = now_ist(), user.user_id, user.user_id
+    if case.status == "PENDING":
+        case.status = "IN_PROGRESS"
+    record_changes(db, entity_type="insurance", entity_id=case.id, before={"docs_verified_at": None}, after=case,
+                   fields=("docs_verified_at",), changed_by_user_id=user.user_id)
+    db.commit()
     return {"ok": True}

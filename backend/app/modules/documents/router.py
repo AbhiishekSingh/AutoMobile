@@ -24,14 +24,16 @@ from app.modules.users.access import MANAGER_ROLES, SALES_ROLES, get_visible_lea
 from app.modules.users.models import AppUser
 
 router = APIRouter(tags=["documents"])
-READ_ROLES = SALES_ROLES + MANAGER_ROLES + ("INSURANCE",)
+READ_ROLES = SALES_ROLES + MANAGER_ROLES + ("INSURANCE", "RTO")
+RTO_DOC_TYPES = ("TAX_INVOICE", "AADHAAR", "PAN", "ELECTRICITY_BILL", "PHOTO", "VOTER_ID", "REGISTERED_RENT_AGREEMENT",
+                 "INDEX_II", "POLICE_NOC", "NOTARIZED_RENT_AGREEMENT", "RENT_AGREEMENT")
 INSURANCE_DOC_TYPES = ("TAX_INVOICE", "AADHAAR", "AADHAAR_FB", "PAN")
 UPLOAD_ROLES = SALES_ROLES
 
 
 def _out(d: CustomerDocument) -> DocumentOut:
     return DocumentOut(id=d.id, lead_id=d.lead_id, doc_type=d.doc_type, note=d.note,
-                       original_name=d.original_name, content_type=d.content_type,
+                       original_name=svc.mask_name(d.original_name) if d.doc_type in svc.SENSITIVE else d.original_name, content_type=d.content_type,
                        size_bytes=d.size_bytes, uploaded_at=d.uploaded_at,
                        uploaded_by_user_id=d.uploaded_by_user_id,
                        uploaded_by=d.uploaded_by.full_name if d.uploaded_by else None)
@@ -41,6 +43,11 @@ def _visible_document(db: Session, user: AppUser, doc_id: int) -> CustomerDocume
     doc = db.get(CustomerDocument, doc_id)
     if not doc:
         raise HTTPException(404, "Document not found")
+    if user.role.value == "RTO":
+        from app.modules.handoffs.models import RtoCase
+        if doc.doc_type not in RTO_DOC_TYPES or not db.query(RtoCase).filter(RtoCase.lead_id == doc.lead_id).first():
+            raise HTTPException(404, "Document not found")
+        return doc
     get_visible_lead(db, user, doc.lead_id)   # 404 if this user can't see the lead
     if user.role.value == "INSURANCE" and doc.doc_type not in INSURANCE_DOC_TYPES:
         raise HTTPException(404, "Document not found")   # the insurance team only opens insurance papers
@@ -51,7 +58,7 @@ def _visible_document(db: Session, user: AppUser, doc_id: int) -> CustomerDocume
             dependencies=[Depends(require_roles(*READ_ROLES))])
 def document_settings():
     return DocumentSettings(types=svc.DOC_TYPES, max_mb=svc.settings.MAX_UPLOAD_MB,
-                            allowed_extensions=sorted(svc.ALLOWED),
+                            allowed_extensions=[".pdf"], max_kb=svc.DOC_MAX_KB, pdf_only=True,
                             max_files_per_lead=svc.MAX_FILES_PER_LEAD)
 
 
@@ -59,8 +66,15 @@ def document_settings():
             dependencies=[Depends(require_roles(*READ_ROLES))])
 def list_documents(lead_id: int, user: AppUser = Depends(get_current_user),
                    db: Session = Depends(get_db)):
-    get_visible_lead(db, user, lead_id)
+    if user.role.value == "RTO":
+        from app.modules.handoffs.models import RtoCase
+        if not db.query(RtoCase).filter(RtoCase.lead_id == lead_id).first():
+            raise HTTPException(404, "Lead not found")
+    else:
+        get_visible_lead(db, user, lead_id)
     q = db.query(CustomerDocument).filter(CustomerDocument.lead_id == lead_id)
+    if user.role.value == "RTO":
+        q = q.filter(CustomerDocument.doc_type.in_(RTO_DOC_TYPES))
     if user.role.value == "INSURANCE":
         q = q.filter(CustomerDocument.doc_type.in_(INSURANCE_DOC_TYPES))
     rows = q.order_by(CustomerDocument.uploaded_at.desc()).all()
@@ -79,7 +93,7 @@ def upload_document(lead_id: int, doc_type: str = Form(...), note: str | None = 
         raise HTTPException(400, f"This lead already has {svc.MAX_FILES_PER_LEAD} files. "
                                  f"Remove one before uploading another")
 
-    saved = svc.save_upload(file, lead.customer_id)   # validates size + type, writes the file
+    saved = svc.save_upload(file, lead.customer_id, limit_bytes=svc.DOC_MAX_KB * 1024, pdf_only=True)   # validates size + type, writes the file
     doc = CustomerDocument(lead_id=lead_id, customer_id=lead.customer_id, doc_type=doc_type,
                            note=(note or "").strip() or None, uploaded_by_user_id=user.user_id,
                            **saved)
@@ -88,6 +102,8 @@ def upload_document(lead_id: int, doc_type: str = Form(...), note: str | None = 
         record_changes(db, entity_type="document", entity_id=doc.id,
                        before={"doc_type": None, "original_name": None}, after=doc,
                        fields=("doc_type", "original_name"), changed_by_user_id=user.user_id)
+        from app.modules.owner_flow import service as of
+        of.maybe_start_insurance(db, lead, user.user_id)   # last required document may complete the checklist
         db.commit()
     except Exception:
         db.rollback()
@@ -102,7 +118,13 @@ def get_document_file(doc_id: int, download: bool = False,
                       user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     doc = _visible_document(db, user, doc_id)
     path = svc.full_path_of(doc.stored_path)
-    return FileResponse(path, media_type=doc.content_type, filename=doc.original_name,
+    shown = svc.mask_name(doc.original_name) if doc.doc_type in svc.SENSITIVE else doc.original_name
+    if doc.doc_type in svc.SENSITIVE:      # who opened an Aadhaar / PAN, and when
+        from app.modules.audit.models import AuditLog
+        db.add(AuditLog(entity_type="document_access", entity_id=doc.id, field_name="download" if download else "view",
+                        old_value=None, new_value=f"{doc.doc_type} of lead {doc.lead_id}", changed_by_user_id=user.user_id))
+        db.commit()
+    return FileResponse(path, media_type=doc.content_type, filename=shown,
                         content_disposition_type="attachment" if download else "inline")
 
 

@@ -24,6 +24,11 @@ class DocumentType(str, enum.Enum):
     IT_RETURN = "IT_RETURN"
     TAX_INVOICE = "TAX_INVOICE"             # insurance: vehicle tax invoice
     AADHAAR_FB = "AADHAAR_FB"               # insurance (BAGIC): Aadhaar front + back in ONE pdf
+    VOTER_ID = "VOTER_ID"                   # RTO
+    REGISTERED_RENT_AGREEMENT = "REGISTERED_RENT_AGREEMENT"   # RTO, rented: option 1
+    INDEX_II = "INDEX_II"                   # RTO, rented: option 1
+    POLICE_NOC = "POLICE_NOC"               # RTO, rented: both options
+    NOTARIZED_RENT_AGREEMENT = "NOTARIZED_RENT_AGREEMENT"     # RTO, rented: option 2
     OTHER = "OTHER"
 
 

@@ -80,6 +80,8 @@ const LogoutIcon = (p) => (
   </AdminIco>
 )
 
+const KPI_ITEM = { to: '/owner/kpi', icon: <ActivityIcon w={18} h={18} />, label: 'KPI view', live: true }
+const FLOW_ITEM = { to: '/workflow', icon: <ActivityIcon w={18} h={18} />, label: 'Deal workflow', live: true }
 // PBA menu — matches the prototype. `live: true` items are wired routes;
 // the rest are shown for the complete look but marked "SOON".
 const PBA_MENU = [
@@ -90,6 +92,7 @@ const PBA_MENU = [
   { to: '/quotations',icon: <NavIco src="navbar/07-quotes.png" w={18} h={18} alt="quotations"  />, label: 'Quotations', live: true },
   {                   icon: <NavIco src="navbar/06-bookings.png"   w={18} h={18} alt="bookings"    />, label: 'Bookings'  },
   {                   icon: <NavIco src="navbar/08-invoices.png"   w={18} h={18} alt="invoices"    />, label: 'Invoices'  },
+  FLOW_ITEM,
   {                   icon: <NavIco src="navbar/09-deliveries.png" w={18} h={18} alt="deliveries"  />, label: 'Deliveries'},
   { to: '/targets', icon: <NavIco src="navbar/10-targets.png"    w={18} h={18} alt="targets"     />, label: 'Targets', live: true },
   {                   icon: <NavIco src="navbar/11-reports.png"    w={18} h={18} alt="reports"     />, label: 'Reports'   },
@@ -101,7 +104,10 @@ const ADMIN_MENU = [
   { to: '/admin/branches', icon: <UsersIcon w={20} h={18} />,  label: 'Branches',     live: true },
   { to: '/admin/import', icon: <ImportIcon w={18} h={20} />, label: 'Import Leads', live: true },
   { to: '/admin/activity-log', icon: <ActivityIcon w={18} h={18} />, label: 'Activity Log', live: true },
+  { to: '/admin/sync-log', icon: <ActivityIcon w={18} h={18} />, label: 'Sync failures', live: true },
   { to: '/owner/dashboard', icon: <ActivityIcon w={18} h={18} />, label: 'Owner report', live: true },
+  KPI_ITEM,
+  FLOW_ITEM,
   { to: '/accounts', icon: <ActivityIcon w={18} h={18} />, label: 'Accounts', live: true },
   { to: '/cre-reports', icon: <ActivityIcon w={18} h={18} />, label: 'CRE reports', live: true },
   { to: '/stock', icon: <ActivityIcon w={18} h={18} />, label: 'Stock', live: true },
@@ -116,12 +122,21 @@ const TARGET_ITEM = { to: '/targets', icon: <ActivityIcon w={18} h={18} />, labe
 const WA_ITEM = { to: '/whatsapp-settings', icon: <ActivityIcon w={18} h={18} />, label: 'WhatsApp links', live: true }
 const ACCOUNTS_ITEM = { to: '/accounts', icon: <ActivityIcon w={18} h={18} />, label: 'Accounts', live: true }
 const CRE_REPORT_ITEM = { to: '/cre-reports', icon: <ActivityIcon w={18} h={18} />, label: 'CRE reports', live: true }
-const OWNER_MENU = [{ to: '/owner/dashboard', icon: <ActivityIcon w={18} h={18} />, label: 'Dashboard', live: true }, { to: '/owner', icon: <ActivityIcon w={18} h={18} />, label: 'Approvals', live: true }, ACCOUNTS_ITEM, CRE_REPORT_ITEM, STOCK_ITEM, TARGET_ITEM, WA_ITEM]
-const GM_MENU = [ACCOUNTS_ITEM, CRE_REPORT_ITEM, STOCK_ITEM, TARGET_ITEM, WA_ITEM]
+const OWNER_MENU = [{ to: '/owner/dashboard', icon: <ActivityIcon w={18} h={18} />, label: 'Dashboard', live: true }, { to: '/owner', icon: <ActivityIcon w={18} h={18} />, label: 'Approvals', live: true }, KPI_ITEM, FLOW_ITEM, ACCOUNTS_ITEM, CRE_REPORT_ITEM, STOCK_ITEM, TARGET_ITEM, WA_ITEM]
+const GM_MENU = [{ to: '/gm', icon: <ActivityIcon w={18} h={18} />, label: 'Dashboard', live: true }, KPI_ITEM, FLOW_ITEM, ACCOUNTS_ITEM, CRE_REPORT_ITEM, STOCK_ITEM, TARGET_ITEM, WA_ITEM]
 const RTO_MENU   = [{ to: '/rto',   icon: <ActivityIcon w={18} h={18} />, label: 'Registrations', live: true }]
 
 const INSURANCE_MENU = [{ to: '/insurance', icon: <ActivityIcon w={18} h={18} />, label: 'Insurance', live: true }]
-const MENU_BY_ROLE = { INSURANCE: INSURANCE_MENU, PBA: PBA_MENU, CRE: PBA_MENU, ADMIN: ADMIN_MENU, OWNER: OWNER_MENU, GM: GM_MENU, RTO: RTO_MENU }   // CRE uses the PBA screens
+const CRE_MENU = [
+  { to: '/dashboard', icon: <ActivityIcon w={18} h={18} />, label: 'Dashboard', live: true },
+  { to: '/cre/walkin', icon: <ActivityIcon w={18} h={18} />, label: 'Walkin', live: true },
+  { to: '/cre/leadsquare', icon: <ActivityIcon w={18} h={18} />, label: 'LeadSquare', live: true },
+  { to: '/followups', icon: <ActivityIcon w={18} h={18} />, label: 'Follow Ups', live: true },
+  { to: '/final-reviews', icon: <ActivityIcon w={18} h={18} />, label: 'Final reviews', live: true },
+  { to: '/insurance', icon: <ActivityIcon w={18} h={18} />, label: 'Insurance', live: true },
+  FLOW_ITEM,
+]
+const MENU_BY_ROLE = { INSURANCE: INSURANCE_MENU, PBA: PBA_MENU, CRE: CRE_MENU, ADMIN: ADMIN_MENU, OWNER: OWNER_MENU, GM: GM_MENU, RTO: RTO_MENU }   // CRE uses the PBA screens
 const COLLAPSE_KEY = 'sk-crm-sidebar-collapsed'
 
 export default function Layout({ title, sub, back, children }) {
@@ -242,10 +257,12 @@ export default function Layout({ title, sub, back, children }) {
           >
             ☰
           </button>
-          <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, minWidth: 0 }}>
             {back && <div className="tb-back" onClick={back.onClick}>← {back.label}</div>}
-            <h2 className="page-title">{title}</h2>
-            {sub && <div className="page-sub">{sub}</div>}
+            <div style={{ minWidth: 0 }}>
+              <h2 className="page-title">{title}</h2>
+              {sub && <div className="page-sub">{sub}</div>}
+            </div>
           </div>
           <div className="topbar-right">
             <NotificationBell />

@@ -36,16 +36,19 @@ def blockers(db, lead) -> dict:
     hard, soft = [], []
     if not hs.get_case(db, InvoiceDetail, lead.lead_id):
         hard.append("Invoice details (chassis / engine no.) are not entered")
+    from app.modules.owner_flow import service as of
+    ini, fin = of.get_stage(db, lead.lead_id, "INITIAL"), of.get_stage(db, lead.lead_id, "FINAL")
+    if not ini or ini.status != "APPROVED":
+        hard.append("Initial Owner approval is not given")
     ins = hs.get_case(db, InsuranceCase, lead.lead_id)
     if not ins or ins.status != "COMPLETED":
         hard.append("Insurance is not completed")
-    rto = hs.get_case(db, RtoCase, lead.lead_id)
-    if not rto or rto.status != "REGISTERED":
-        hard.append("RTO registration is not completed")
-    appr = hs.get_case(db, OwnerApproval, lead.lead_id)
-    if not appr or appr.status != "APPROVED":
-        soft.append("Owner approval is pending" if appr and appr.status == "PENDING"
-                    else "Owner approval has not been given")
+    # the Delivery Challan opens as soon as the file has reached the RTO (final Owner approval)
+    if not fin or fin.status != "APPROVED" or not hs.get_case(db, RtoCase, lead.lead_id):
+        hard.append("Final Owner approval is not given (the file has not reached the RTO)")
+    appr = hs.get_case(db, OwnerApproval, lead.lead_id)      # the PBA's optional special-request
+    if appr and appr.status != "APPROVED":
+        soft.append("Owner approval is pending" if appr.status == "PENDING" else "Owner approval was rejected")
     s = pay_svc.summary(db, lead)
     if s["outstanding"] is None or s["outstanding"] > 0:
         soft.append("Payment is not complete" + (f" (outstanding Rs. {s['outstanding']:,.2f})" if s["outstanding"] else ""))
@@ -107,7 +110,7 @@ def delivery_data(db, lead, rec) -> dict:
     fin = sum((p["amount"] for p in pays if p["mode"] == "FINANCE"), ZERO)
     have = {d.doc_type for d in db.query(CustomerDocument).filter(CustomerDocument.lead_id == lead.lead_id).all()}
     req = [d for d in docs.DOC_TYPES if d["required"]]
-    got = [d["label"] for d in req if d["value"] in have or d.get("either_with") in have]
+    got = [d["label"] for d in req if docs.doc_satisfied(d, have)]
     warranty = q.engine_warranty_years if q and q.engine_warranty_years else None
     w_text = "-" if not warranty else (f"{warranty} years" + (f" (ATW: {hs.ATW_LABELS[atw.status]})" if warranty == 10 and atw else ""))
     branch = lead.branch
@@ -119,6 +122,7 @@ def delivery_data(db, lead, rec) -> dict:
         "model": lead.model.name if lead.model else None, "color": lead.color, "sku_code": lead.sku_code,
         "chassis_no": inv.chassis_no, "engine_no": inv.engine_no, "invoice_no": inv.invoice_no, "invoice_date": inv.invoice_date,
         "registration_no": rto.registration_no if rto else None,
+        "choice_number": (rto.choice_number if rto else None) or inv.choice_number,
         "plate_type": hs.REG_TYPES.get((rto.registration_type if rto else None) or inv.registration_type),
         "acc_helmet": bool(q and q.acc_helmet), "acc_parking_cover": bool(q and q.acc_parking_cover),
         "rsa_one_year": bool(q and q.rsa_one_year), "warranty_text": w_text,

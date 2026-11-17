@@ -15,6 +15,8 @@ class DocumentSettings(BaseModel):
     """What the upload form needs: types, size limit, allowed files."""
     types: list[DocumentTypeOption]
     max_mb: int
+    max_kb: int = 100
+    pdf_only: bool = True
     allowed_extensions: list[str]
     max_files_per_lead: int
 

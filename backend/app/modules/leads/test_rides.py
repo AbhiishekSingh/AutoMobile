@@ -89,6 +89,8 @@ def create_test_ride(db: Session, lead: Lead, *, status: str, scheduled_at: date
             raise HTTPException(400, "Please choose the date & time of the test ride")
         if scheduled_at < now - PAST_GRACE:
             raise HTTPException(400, "A test ride can't be booked in the past — pick a time from now onwards")
+        if not (preferred_location or "").strip():
+            raise HTTPException(400, "Please enter the test ride location")
         new_status, opp = TestRideStatus.BOOKED, "TEST RIDE BOOKED"
     elif status == "COMPLETED":
         # Spot ride: the customer is riding right now.

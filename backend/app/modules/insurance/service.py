@@ -1,6 +1,7 @@
 """Insurance team rules: which documents a policy type needs, and the dashboard numbers."""
 from fastapi import HTTPException
 
+from app.modules.documents import service as docs_svc
 from app.modules.documents.models import CustomerDocument
 from app.modules.handoffs.models import InsuranceCase
 
@@ -34,7 +35,7 @@ def checklist(db, lead, case) -> list[dict]:
     for t in required_types(case):
         d = have.get(t)
         out.append({"doc_type": t, "label": LABELS[t], "pdf_only": t in PDF_ONLY, "uploaded": bool(d),
-                    "doc_id": d.id if d else None, "file_name": d.original_name if d else None,
+                    "doc_id": d.id if d else None, "file_name": docs_svc.mask_name(d.original_name) if d else None,
                     "uploaded_at": d.uploaded_at if d else None,
                     "uploaded_by": d.uploaded_by.full_name if d and d.uploaded_by else None})
     return out

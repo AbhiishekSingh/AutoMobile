@@ -70,7 +70,7 @@ def get_panel(lead_id: int, user: AppUser = Depends(get_current_user), db: Sessi
 @router.put("/leads/{lead_id}/invoice", dependencies=[Depends(require_roles("PBA"))])
 def save_invoice(lead_id: int, chassis_no: str = Form(...), engine_no: str = Form(...),
                  invoice_no: Optional[str] = Form(None), invoice_date: Optional[date] = Form(None),
-                 registration_type: Optional[str] = Form(None), hypothecation: Optional[str] = Form(None),
+                 registration_type: Optional[str] = Form(None), choice_number: Optional[str] = Form(None), hypothecation: Optional[str] = Form(None),
                  nominee_name: Optional[str] = Form(None), nominee_relation: Optional[str] = Form(None),
                  insurance_addon: Optional[str] = Form(None), delivery_date: Optional[date] = Form(None),
                  file: Optional[UploadFile] = File(None), user: AppUser = Depends(get_current_user),
@@ -86,7 +86,7 @@ def save_invoice(lead_id: int, chassis_no: str = Form(...), engine_no: str = For
     try:
         row = svc.save_invoice(db, lead, dict(
             chassis_no=chassis_no, engine_no=engine_no, invoice_no=invoice_no, invoice_date=invoice_date,
-            registration_type=registration_type or None, hypothecation=hypothecation,
+            registration_type=registration_type or None, choice_number=(choice_number or "").strip().upper() or None, hypothecation=hypothecation,
             nominee_name=nominee_name, nominee_relation=nominee_relation or None,
             insurance_addon=insurance_addon, delivery_date=delivery_date), saved, user)
         record_changes(db, entity_type="invoice", entity_id=row.id,
@@ -201,6 +201,7 @@ def get_policy_pdf(lead_id: int, download: bool = False, user: AppUser = Depends
 class RtoUpdate(BaseModel):
     status: Optional[str] = None
     registration_type: Optional[str] = None
+    choice_number: Optional[str] = None
     registration_no: Optional[str] = None
     registration_date: Optional[date] = None
     delivery_date: Optional[date] = None
@@ -294,7 +295,7 @@ def delivery_reminders(user: AppUser = Depends(get_current_user), db: Session = 
 
 
 @router.get("/handoffs/queue", dependencies=[Depends(require_roles(*ALL_ROLES))])
-def queue(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def queue(status: str | None = None, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     """Worklist for the logged-in role.
        OWNER -> approvals + ATW waiting;  RTO -> RTO cases not yet registered;
        CRE / ADMIN / GM -> insurance cases not completed (CRE: own branches)."""
@@ -308,12 +309,22 @@ def queue(user: AppUser = Depends(get_current_user), db: Session = Depends(get_d
             out.append(row(db.get(Lead, a.lead_id), kind="APPROVAL", since=a.requested_at,
                            items=[svc.SPECIAL_ITEMS.get(i, i) for i in (a.special_items or "").split(",") if i],
                            delivery_date=a.delivery_date.isoformat() if a.delivery_date else None))
+        from app.modules.owner_flow.models import OwnerStageApproval
+        for a in db.query(OwnerStageApproval).filter(OwnerStageApproval.status == "PENDING").all():
+            out.append(row(db.get(Lead, a.lead_id), kind="INITIAL_APPROVAL" if a.stage == "INITIAL" else "FINAL_APPROVAL",
+                           since=a.requested_at))
         for a in db.query(AtwApproval).filter(AtwApproval.status == "PENDING").all():
             out.append(row(db.get(Lead, a.lead_id), kind="ATW", since=a.requested_at, model_name=a.model_name))
     elif role == "RTO":
-        for r in db.query(RtoCase).filter(RtoCase.status != "REGISTERED").all():
+        q = db.query(RtoCase)
+        q = q.filter(RtoCase.status == "REGISTERED") if status == "REGISTERED" else q.filter(RtoCase.status != "REGISTERED")
+        if status in ("PENDING", "IN_PROCESS"):
+            q = q.filter(RtoCase.status == status)
+        for r in q.order_by(RtoCase.updated_at.desc()).all():
             out.append(row(db.get(Lead, r.lead_id), kind="RTO", status=r.status, since=r.created_at,
-                           registration_type=svc.REG_TYPES.get(r.registration_type)))
+                           registration_type=svc.REG_TYPES.get(r.registration_type), registration_no=r.registration_no,
+                           registration_date=r.registration_date.isoformat() if r.registration_date else None,
+                           delivery_date=r.delivery_date.isoformat() if r.delivery_date else None))
     else:
         q = scope_leads(db.query(Lead), user).join(InsuranceCase, InsuranceCase.lead_id == Lead.lead_id) \
             .filter(InsuranceCase.status != "COMPLETED").add_columns(InsuranceCase.status, InsuranceCase.created_at)

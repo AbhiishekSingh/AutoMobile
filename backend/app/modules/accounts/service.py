@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.modules.accounts.models import PaymentRecon, Refund, VendorBill
+from app.modules.accounts.models import AccountsPermission, PaymentRecon, Refund, VendorBill
 from app.modules.leads.models import EnquiryStage as S, Lead
 from app.modules.leads.stages import sold_condition
 from app.modules.payments.models import Booking, Payment
@@ -65,3 +65,23 @@ def refund_totals(db: Session, branch_id=None) -> dict:
 
 def all_totals(db: Session, branch_id=None) -> dict:
     return {**payables_totals(db, branch_id), **recon_totals(db, branch_id), **refund_totals(db, branch_id)}
+
+
+# ---------- who may edit (configurable by the Owner / Admin) ----------
+# Everybody who can open Accounts can VIEW it. These are the actions that CHANGE something.
+ACTIONS = {"RECONCILE": "Mark / undo bank reconciliation", "BILLS": "Add and edit payable bills",
+           "PAY_BILL": "Mark a bill as paid", "REFUND": "Set and process refunds"}
+CONFIGURABLE_ROLES = ("GM", "ADMIN")      # the Owner always keeps every permission
+
+
+def permission_map(db: Session) -> dict:
+    """{action: {role: bool}} for every action and role (default allowed)."""
+    rows = {(r.action, r.role): r.allowed for r in db.query(AccountsPermission).all()}
+    return {a: {"OWNER": True, **{r: rows.get((a, r), True) for r in CONFIGURABLE_ROLES}} for a in ACTIONS}
+
+
+def can(db: Session, role: str, action: str) -> bool:
+    if role == "OWNER":
+        return True
+    row = db.query(AccountsPermission).filter(AccountsPermission.action == action, AccountsPermission.role == role).first()
+    return True if row is None else bool(row.allowed)

@@ -47,6 +47,8 @@ OPPORTUNITY_STATUSES = [
     "BOOKING DONE",
     "CASUAL ENQUIRY",
     "FALSE ENQUIRY",
+    "WRONG ENQUIRY",
+    "OUT OF MH",             # outside Maharashtra: CRE marks it, the lead is taken out of the working list
     "DELIVERED",
     "TEST RIDE BOOKED",
     "TEST RIDE COMPLETED",

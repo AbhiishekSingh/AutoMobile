@@ -18,6 +18,24 @@ from fastapi import HTTPException, UploadFile
 from app.core.config import settings
 from app.modules.documents.models import DocumentType
 
+SENSITIVE = ("AADHAAR", "AADHAAR_FB", "PAN")     # stored with restricted access; names shown masked; every open is logged
+
+
+def mask_name(name: str) -> str:
+    """Hide ID numbers that people type into file names: PAN pattern and Aadhaar digits (keep the last 4)."""
+    import re
+    stem, dot, ext = (name or "").rpartition(".")
+    if not dot:
+        stem, ext = name or "", ""
+    stem = re.sub(r"[A-Za-z]{5}\d{4}[A-Za-z]", lambda m: "X" * 6 + m.group()[-4:], stem)
+    digits = [i for i, ch in enumerate(stem) if ch.isdigit()]
+    keep = set(digits[-4:]) if len(digits) > 4 else set(digits)
+    if len(digits) > 4:
+        stem = "".join("X" if (i in digits and i not in keep) else ch for i, ch in enumerate(stem))
+    return stem + (dot + ext if dot else "")
+
+
+DOC_MAX_KB = 100          # every customer document: PDF only, at most 100 KB (RTO rule, applied to all)
 MAX_FILES_PER_LEAD = 30
 CHUNK = 64 * 1024
 
@@ -47,6 +65,21 @@ DOC_TYPES = [
     {"value": DocumentType.OTHER.value, "label": "Other", "required": False},
 ]
 
+# A rent agreement is ONE paper for the whole file: the generic KYC type, or the Registered / Notarized type the
+# RTO asks for. Uploading any of them in either place counts for both lists.
+RENT_FAMILY = (DocumentType.RENT_AGREEMENT.value, DocumentType.REGISTERED_RENT_AGREEMENT.value,
+               DocumentType.NOTARIZED_RENT_AGREEMENT.value)
+
+
+def doc_satisfied(d: dict, have) -> bool:
+    """Is this required KYC item covered by the uploaded doc types in `have`?"""
+    v, ew = d["value"], d.get("either_with")
+    if v in have or (ew and ew in have):
+        return True
+    if DocumentType.RENT_AGREEMENT.value in (v, ew):
+        return any(t in have for t in RENT_FAMILY)
+    return False
+
 
 def max_bytes() -> int:
     return settings.MAX_UPLOAD_MB * 1024 * 1024
@@ -63,16 +96,18 @@ def check_doc_type(value: str) -> str:
         raise HTTPException(400, "Please choose the document type")
 
 
-def save_upload(file: UploadFile, customer_id: int) -> dict:
+def save_upload(file: UploadFile, customer_id: int, limit_bytes: int | None = None, pdf_only: bool = False) -> dict:
     """Validate and store one upload. Returns the details to save in the DB.
     Raises a 400 with a message fit to show the PBA if the file isn't allowed."""
     name = os.path.basename(file.filename or "").strip()
     ext = os.path.splitext(name)[1].lower()
+    if pdf_only and ext != ".pdf":
+        raise HTTPException(400, "Only PDF files can be uploaded (maximum 100 KB per file)")
     if ext not in ALLOWED:
         raise HTTPException(400, "Only PDF, JPG or PNG files can be uploaded")
     content_type, magics = ALLOWED[ext]
 
-    limit = max_bytes()
+    limit = limit_bytes or max_bytes()
     folder = os.path.join(upload_root(), "customers", str(customer_id))
     os.makedirs(folder, exist_ok=True)
     rel_path = os.path.join("customers", str(customer_id), f"{uuid.uuid4().hex}{ext}")
@@ -85,7 +120,8 @@ def save_upload(file: UploadFile, customer_id: int) -> dict:
                 size += len(chunk)
                 if size > limit:
                     raise HTTPException(
-                        400, f"File is too large. The limit is {settings.MAX_UPLOAD_MB} MB per file")
+                        400, (f"File is too large. The limit is {limit // 1024} KB per file" if limit_bytes
+                              else f"File is too large. The limit is {settings.MAX_UPLOAD_MB} MB per file"))
                 if len(head) < 16:
                     head += chunk[:16]
                 out.write(chunk)

@@ -13,7 +13,7 @@ import { Empty, Loading, fmtDateTime } from '../../components/ui'
 
 const fmtSize = (b) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`)
 
-export default function DocumentsSection({ leadId }) {
+export default function DocumentsSection({ leadId, embedded = false, onChanged, refreshKey }) {
   const { user } = useAuth()
   const canUpload = isSales(user)
   const fileRef = useRef(null)
@@ -26,26 +26,29 @@ export default function DocumentsSection({ leadId }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)          // { type: 'ok' | 'error', text }
 
-  function load() {
-    api.get(`/leads/${leadId}/documents`).then((r) => setDocs(r.data)).catch(() => setDocs([]))
+  function load(notify) {
+    api.get(`/leads/${leadId}/documents`).then((r) => { setDocs(r.data); if (notify === true && onChanged) onChanged() }).catch(() => setDocs([]))
   }
+  useEffect(() => { if (refreshKey) load() }, [refreshKey])
   useEffect(() => {
     api.get('/documents/settings').then((r) => setCfg(r.data)).catch(() => {})
     load()
   }, [leadId])
 
   const label = (v) => cfg?.types.find((t) => t.value === v)?.label || v
-  const accept = cfg ? cfg.allowed_extensions.join(',') : '.pdf,.jpg,.jpeg,.png'
+  const accept = '.pdf,application/pdf'
+  const maxKb = cfg?.max_kb ?? 100
 
   // Checklist: required KYC; electricity bill OR rent agreement counts as one.
   const have = new Set((docs || []).map((d) => d.doc_type))
+  const rentUploaded = ['RENT_AGREEMENT', 'REGISTERED_RENT_AGREEMENT', 'NOTARIZED_RENT_AGREEMENT'].some((t) => have.has(t))   // one paper, counts in KYC and RTO
   const checklist = []
   for (const t of cfg?.types || []) {
     if (!t.required) continue
     if (t.either_with) {
       if (checklist.some((c) => c.key === `${t.either_with}|${t.value}`)) continue
       checklist.push({ key: `${t.value}|${t.either_with}`, label: `${label(t.value).replace(/ \(.*\)/, '')} or ${label(t.either_with).replace(/ \(.*\)/, '')}`,
-                       done: have.has(t.value) || have.has(t.either_with) })
+                       done: have.has(t.value) || have.has(t.either_with) || (t.value === 'RENT_AGREEMENT' || t.either_with === 'RENT_AGREEMENT') && rentUploaded })
     } else {
       checklist.push({ key: t.value, label: t.label, done: have.has(t.value) })
     }
@@ -55,8 +58,14 @@ export default function DocumentsSection({ leadId }) {
   function pick(e) {
     const f = e.target.files?.[0] || null
     setMsg(null)
-    if (f && cfg && f.size > cfg.max_mb * 1024 * 1024) {
-      setMsg({ type: 'error', text: `${f.name} is ${fmtSize(f.size)}. The limit is ${cfg.max_mb} MB per file.` })
+    if (f && !/\.pdf$/i.test(f.name)) {
+      setMsg({ type: 'error', text: `${f.name} is not a PDF. Only PDF files can be uploaded.` })
+      e.target.value = ''
+      setFile(null)
+      return
+    }
+    if (f && f.size > maxKb * 1024) {
+      setMsg({ type: 'error', text: `${f.name} is ${fmtSize(f.size)}. Each document must be a PDF of ${maxKb} KB or less — please compress or re-scan it smaller.` })
       e.target.value = ''
       setFile(null)
       return
@@ -78,7 +87,7 @@ export default function DocumentsSection({ leadId }) {
       setMsg({ type: 'ok', text: `${label(docType)} uploaded.` })
       setFile(null); setNote(''); setDocType('')
       if (fileRef.current) fileRef.current.value = ''
-      load()
+      load(true)
     } catch (err) {
       setMsg({ type: 'error', text: err.response?.data?.detail || 'Upload failed. Please try again.' })
     } finally {
@@ -108,15 +117,15 @@ export default function DocumentsSection({ leadId }) {
     try {
       await api.delete(`/documents/${d.id}`)
       setMsg({ type: 'ok', text: 'File removed.' })
-      load()
+      load(true)
     } catch (err) {
       setMsg({ type: 'error', text: err.response?.data?.detail || 'Could not remove this file.' })
     }
   }
 
   return (
-    <div className="card">
-      <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+    <div className={embedded ? '' : 'card'}>
+      <div className={embedded ? 'sub-header' : 'card-header'} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <h3>Customer Documents <span className="muted-note">({docs ? docs.length : '…'})</span></h3>
         {cfg && docs && (missing === 0
           ? <span className="badge badge-green">All required KYC uploaded</span>
@@ -149,7 +158,7 @@ export default function DocumentsSection({ leadId }) {
             <div><button className="btn btn-primary" disabled={busy || !cfg}>{busy ? 'Uploading…' : 'Upload'}</button></div>
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
-            PDF, JPG or PNG · up to {cfg?.max_mb ?? 5} MB per file · * required for booking.
+            PDF only · maximum {maxKb} KB per file · * required for booking. The same file is used for RTO.
             Electricity bill (own house) or rent agreement (rented house) — either one is enough.
           </div>
           {msg && (

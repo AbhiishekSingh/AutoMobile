@@ -58,10 +58,10 @@ export default function HandoffPanel({ leadId, onChanged }) {
       nominee_relation_other: d.insurance.nominee_relation_other || '', hypothecation: d.insurance.hypothecation || '' })
     const v = d.invoice || {}
     setInv({ invoice_no: v.invoice_no || '', invoice_date: v.invoice_date || '', chassis_no: v.chassis_no || '',
-      engine_no: v.engine_no || '', registration_type: v.registration_type || '', hypothecation: v.hypothecation || '',
+      engine_no: v.engine_no || '', registration_type: v.registration_type || '', choice_number: v.choice_number || '', hypothecation: v.hypothecation || '',
       nominee_name: v.nominee_name || '', nominee_relation: v.nominee_relation || '', insurance_addon: v.insurance_addon || '',
       delivery_date: v.delivery_date || '' })
-    if (d.rto) setRto({ status: d.rto.status, registration_type: d.rto.registration_type || '',
+    if (d.rto) setRto({ status: d.rto.status, registration_type: d.rto.registration_type || '', choice_number: d.rto.choice_number || '',
       registration_no: d.rto.registration_no || '', registration_date: d.rto.registration_date || '',
       delivery_date: d.rto.delivery_date || '' })
   }
@@ -148,6 +148,7 @@ export default function HandoffPanel({ leadId, onChanged }) {
                 <div className="field" style={{ marginBottom: 0 }}><label>Registration type</label>
                   <select className="input" value={inv.registration_type} onChange={(e) => setInv({ ...inv, registration_type: e.target.value })}>
                     <option value="">Select</option>{p.options.reg_types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
+                {inv.registration_type === 'CHOICE' && <div className="field" style={{ marginBottom: 0 }}><label>Choice number</label><input className="input" value={inv.choice_number} maxLength={10} onChange={(e) => setInv({ ...inv, choice_number: e.target.value.toUpperCase() })} /></div>}
                 <div className="field" style={{ marginBottom: 0 }}><label>Hypothecation (HP) bank</label><input className="input" value={inv.hypothecation} onChange={(e) => setInv({ ...inv, hypothecation: e.target.value })} /></div>
                 <div className="field" style={{ marginBottom: 0 }}><label>Nominee name</label><input className="input" value={inv.nominee_name} onChange={(e) => setInv({ ...inv, nominee_name: e.target.value })} /></div>
                 <div className="field" style={{ marginBottom: 0 }}><label>Nominee relation</label>
@@ -163,6 +164,7 @@ export default function HandoffPanel({ leadId, onChanged }) {
               <Row k="Invoice no. / date" v={[p.invoice.invoice_no, fmtDate(p.invoice.invoice_date)].filter(Boolean).join(' · ')} />
               <Row k="Chassis no." v={p.invoice.chassis_no} /><Row k="Engine no." v={p.invoice.engine_no} />
               <Row k="Registration type" v={p.options.reg_types.find((o) => o.value === p.invoice.registration_type)?.label} />
+              {p.invoice.registration_type === 'CHOICE' && <Row k="Choice number" v={p.invoice.choice_number} />}
               <Row k="Hypothecation (HP)" v={p.invoice.hypothecation} />
               <Row k="Nominee" v={[p.invoice.nominee_name, p.invoice.nominee_relation].filter(Boolean).join(', ')} />
               <Row k="Add-on" v={p.invoice.insurance_addon} /><Row k="Bike delivery date" v={fmtDate(p.invoice.delivery_date)} />
@@ -225,7 +227,7 @@ export default function HandoffPanel({ leadId, onChanged }) {
           <b>3. RTO registration</b>{R && <span className={'badge ' + BADGE[R.status]}>{R.status_label}</span>}
         </div>
         {!R && <div className="muted-note" style={{ margin: '6px 0 14px' }}>Starts when the insurance policy is uploaded.</div>}
-        {R && !canRto && (<div style={{ margin: '8px 0 14px' }}><Grid><Row k="Registration type" v={R.registration_type_label} />
+        {R && !canRto && (<div style={{ margin: '8px 0 14px' }}><Grid><Row k="Registration type" v={R.registration_type_label} />{R.registration_type === 'CHOICE' && <Row k="Choice number" v={R.choice_number} />}
           <Row k="Registration no." v={R.registration_no} /><Row k="Registered on" v={fmtDate(R.registration_date)} /><Row k="Bike delivery date" v={fmtDate(R.delivery_date)} /></Grid></div>)}
         {R && canRto && (
           <div style={{ margin: '8px 0 14px' }}><Grid>
@@ -235,11 +237,12 @@ export default function HandoffPanel({ leadId, onChanged }) {
             <div className="field" style={{ marginBottom: 0 }}><label>Registration type</label>
               <select className="input" value={rto.registration_type || ''} onChange={(e) => setRto({ ...rto, registration_type: e.target.value })}>
                 <option value="">—</option>{p.options.reg_types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
+            {rto.registration_type === 'CHOICE' && <div className="field" style={{ marginBottom: 0 }}><label>Choice number</label><input className="input" value={rto.choice_number || ''} maxLength={10} onChange={(e) => setRto({ ...rto, choice_number: e.target.value.toUpperCase() })} /></div>}
             <div className="field" style={{ marginBottom: 0 }}><label>Online registration no.</label><input className="input" value={rto.registration_no || ''} onChange={(e) => setRto({ ...rto, registration_no: e.target.value })} /></div>
             <div className="field" style={{ marginBottom: 0 }}><label>Registration date</label><input className="input" type="date" max={today()} value={rto.registration_date || ''} onChange={(e) => setRto({ ...rto, registration_date: e.target.value })} /></div>
             <div className="field" style={{ marginBottom: 0 }}><label>Bike delivery date</label><input className="input" type="date" value={rto.delivery_date || ''} onChange={(e) => setRto({ ...rto, delivery_date: e.target.value })} /></div>
             <div><button className="btn btn-primary" disabled={busy} onClick={() => run(() => api.patch(`/leads/${leadId}/rto`, {
-              status: rto.status, registration_type: rto.registration_type || null, registration_no: rto.registration_no || null,
+              status: rto.status, registration_type: rto.registration_type || null, choice_number: rto.choice_number || null, registration_no: rto.registration_no || null,
               registration_date: rto.registration_date || null, delivery_date: rto.delivery_date || null }), 'RTO details saved. The PBA has been notified of any new number or date.')}>Save RTO details</button></div>
           </Grid></div>)}
 

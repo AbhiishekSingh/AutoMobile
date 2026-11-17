@@ -51,6 +51,16 @@ def lead_query(db, branch_ids, start, end, f):
     return q
 
 
+OTHER_STATUSES = ("CASUAL ENQUIRY", "FALSE ENQUIRY", "WRONG ENQUIRY", "OUT OF MH")
+
+
+def other_condition(db):
+    """Service leads, or Casual / False / Wrong enquiry, or Out of MH (by Opportunity Status)."""
+    from app.modules.leads.models import LeadType
+    ids = [o.id for o in db.query(OpportunityStatus).filter(func.upper(OpportunityStatus.name).in_(OTHER_STATUSES)).all()]
+    return or_(Lead.lead_type == LeadType.SERVICE, Lead.opportunity_status_id.in_(ids or [-1]))
+
+
 def _ids(q):
     return {r[0] for r in q.with_entities(Lead.lead_id).all()}
 
@@ -143,7 +153,30 @@ def report(db: Session, date_from, date_to, cre_id=None, branch_id=None, f=None,
     trend = defaultdict(int)
     for (ts,) in db.query(LeadFollowup.created_at).filter(LeadFollowup.user_id.in_(cre_ids or [-1]), LeadFollowup.created_at >= start, LeadFollowup.created_at < end).all():
         trend[ts.date().isoformat()] += 1
-    return {"from": d1, "to": d2, "rows": rows, "total": total, "funnel": funnel, "opportunity": opp, "disposition": disp,
+    # ---- extra numbers for the CRE dashboard ----
+    ub = list(union)
+    span = end - start
+    prev = scope_stats(db, ub, start - span, start, f)
+    other = base.filter(other_condition(db)).count()
+    monthly = []
+    y, m = d2.year, d2.month
+    for _ in range(4):
+        m0 = datetime(y, m, 1)
+        m1 = datetime(y + (m == 12), (m % 12) + 1, 1)
+        st = scope_stats(db, ub, m0, m1, f)
+        monthly.append({"label": m0.strftime("%b"), "bookings": st["booked"], "conversion_pct": _pct(st["booked"], st["total"])})
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    monthly.reverse()
+    wk = [0] * 7
+    for k, v in trend.items():
+        wk[date.fromisoformat(k).weekday()] += v
+    done_calls = sum(r["calls_connected"] for r in rows)
+    dash = {"prev": prev, "other_enquiry": other, "monthly": monthly,
+            "weekday": [{"label": n, "count": c} for n, c in zip(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), wk)],
+            "followup": {"done": done_calls, "pending": total["pending"]}}
+    return {"dashboard": dash, "from": d1, "to": d2, "rows": rows, "total": total, "funnel": funnel, "opportunity": opp, "disposition": disp,
             "trend": [{"date": k, "count": v} for k, v in sorted(trend.items())],
             "review": review_report(db, cre_ids, start, end),
             "options": {"cres": [{"id": c.user_id, "name": c.full_name} for c in cres(db, only_id)],
@@ -169,7 +202,8 @@ def review_report(db, cre_ids, start, end):
 
 
 KINDS = {"overdue": "Overdue follow-ups", "pending": "Pending follow-ups", "due_today": "Today's follow-ups", "tr_scheduled": "Test rides scheduled",
-         "tr_completed": "Test rides completed", "showroom": "Showroom visits", "lost": "Lost leads", "booked": "Bookings", "all": "All leads"}
+         "tr_completed": "Test rides completed", "showroom": "Showroom visits", "lost": "Lost leads", "booked": "Bookings", "all": "All leads",
+         "other": "Service / Casual / Wrong / False / Out of MH"}
 
 
 def lead_list(db, kind, branch_ids, start, end, f, limit=500):
@@ -188,6 +222,7 @@ def lead_list(db, kind, branch_ids, start, end, f, limit=500):
     elif kind == "showroom": base = base.filter(Lead.showroom_visit == "YES")
     elif kind == "lost": base = base.filter(Lead.enquiry_stage == S.CLOSED, ~sold_condition(db), ~cancelled_booking_condition(db))
     elif kind == "booked": base = base.filter(sold_condition(db))
+    elif kind == "other": base = base.filter(other_condition(db))
     names = {u.user_id: u.full_name for u in db.query(AppUser).all()}
     bn = {b.branch_id: b.name for b in db.query(Branch).all()}
     return [{"lead_id": l.lead_id, "enquiry_no": l.enquiry_no, "customer": l.customer.full_name, "mobile": l.customer.phone,

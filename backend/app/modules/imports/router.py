@@ -39,5 +39,13 @@ async def import_leads(
         # password-protected file, etc.) shouldn't come back as a raw 500 —
         # nothing has been committed at this point, so it's safe to just report it.
         db.rollback()
+        from app.modules.sync_log.service import log_failure
+        log_failure(db, "LEADSQUARE_IMPORT", f"Could not read the file: {e}", ref_type="import", ref_label=file.filename, user=user)
+        db.commit()
         raise HTTPException(400, f"Couldn't read this file: {e}")
+    if summary.get("errors"):
+        from app.modules.sync_log.service import log_failure
+        for err in summary["errors"]:
+            log_failure(db, "LEADSQUARE_IMPORT", err, ref_type="import", ref_label=file.filename, user=user)
+        db.commit()
     return {"filename": file.filename, **summary}

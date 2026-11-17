@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_roles
+from app.modules.owner import kpi as kpi_svc
 from app.modules.owner import service as svc
 from app.modules.users.models import AppUser
 
 router = APIRouter(prefix="/owner", tags=["owner"])
-OWNER = Depends(require_roles("OWNER", "ADMIN"))
+OWNER = Depends(require_roles("OWNER", "ADMIN", "GM"))
 
 
 def _args(period, on, branch_id):
@@ -80,3 +81,9 @@ def export(period: str = "month", on: date | None = None, branch_id: int | None 
     name = f"owner-report-{p}-{d['start']}.xlsx"
     return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/kpi", dependencies=[OWNER])
+def kpi(period: str = "month", on: date | None = None, branch_id: int | None = None, db: Session = Depends(get_db)):
+    p, a, b = _args(period, on, branch_id)
+    return kpi_svc.kpi(db, p, a, b)

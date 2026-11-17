@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # Public address customers use to reach the API (no trailing slash). Used to build
     # the "I AGREE" links sent to customers, e.g. https://crm.skautomobiles.in/api
     PUBLIC_API_URL: str = "http://localhost:8000"
+    PUBLIC_APP_URL: str = "http://localhost:5173"      # the CRM website (used in links sent to staff)
 
     # Google review link printed on the delivery receipt (leave empty until you have it)
     GOOGLE_REVIEW_URL: str = ""
@@ -47,6 +48,8 @@ class Settings(BaseSettings):
     WA_TPL_REVIEW: str = "google_review_request"
     WA_REVIEW_PARAMS: int = 1     # 1 = old template (link only); 4 = new template: showroom, review link, KTM app link, Instagram link
     WA_TPL_TEST_RIDE: str = "test_ride_scheduled"
+    WA_TPL_RTO_DOCS: str = "rto_documents_request"
+    WA_TPL_INSURANCE_PBA: str = "insurance_ready_pba"
 
     # Email (SMTP) — stopgap for "Send via WhatsApp" while the Meta production
     # template is pending approval (~1 week). Works with Gmail (use an App

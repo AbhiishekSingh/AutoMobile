@@ -24,6 +24,7 @@ from app.modules.leads.schemas import (CustomerListResponse, CustomerLookup,
 from app.modules.audit.service import record_changes
 from app.modules.leads.lookup_names import lookup_key
 from app.modules.leads.sla import ageing_days, lead_sla
+from app.modules.leads import out_of_mh
 from app.modules.leads.stages import (change_stage, delivered_condition,
                                       invoiced_condition, open_booking_condition,
                                       sold_condition, stage_label)
@@ -171,7 +172,9 @@ def lead_detail(lead_id: int, user: AppUser = Depends(get_current_user),
                         disposition=f.disposition.name if f.disposition else None,
                         opportunity_status=f.opportunity.name if f.opportunity else None,
                         next_followup_at=f.next_followup_at,
-                        by=f.user.full_name if f.user else None) for f in l.followups],
+                        by=f.user.full_name if f.user else None,
+                        by_role=f.user.role.value if f.user else None,
+                        call_outcome=f.call_outcome, customer_feedback=f.customer_feedback) for f in l.followups],
         test_rides=[dict(id=t.id, model_name=t.model.name if t.model else None, color=t.color,
                          status=t.status.value, scheduled_at=t.scheduled_at, slot=t.slot,
                          preferred_location=t.preferred_location, completed=t.completed)
@@ -381,6 +384,16 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
     lead_before["enquiry_stage"] = lead.enquiry_stage
     lead_before["assigned_user_id"] = lead.assigned_user_id
 
+    # a changed mobile number must be valid and must not belong to another customer
+    if cust is not None and data.get("phone") is not None and data["phone"] != cust.phone:
+        new_phone = normalize_phone(data["phone"])
+        if len(new_phone) < 10:
+            raise HTTPException(400, "Enter a valid 10-digit mobile number")
+        other = find_customer_by_phone(db, new_phone)
+        if other and other.customer_id != cust.customer_id:
+            raise HTTPException(400, f"This mobile number already belongs to another customer ({other.full_name}). "
+                                     "Open that customer instead of creating a duplicate")
+        data["phone"] = new_phone
     # customer fields
     for f in CUSTOMER_FIELDS:
         if f in data and cust is not None:
@@ -393,6 +406,9 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
             and data["opportunity_status_id"] != lead.opportunity_status_id):
         _require_listed(db, OpportunityStatus, data["opportunity_status_id"],
                         "Opportunity Status")
+        _o = db.get(OpportunityStatus, data["opportunity_status_id"]) if data["opportunity_status_id"] else None
+        if _o and _o.name.strip().upper() == out_of_mh.OUT_OF_MH:
+            out_of_mh.guard(lead)
 
     # Next Follow-up Date: only from now up to 15 days ahead — checked only
     # when it changes, so an older lead's existing date doesn't block saving
@@ -464,6 +480,7 @@ def update_lead(lead_id: int, body: LeadUpdate, user: AppUser = Depends(get_curr
 
     if "opportunity_status_id" in data:
         db.flush(); db.refresh(lead)
+        out_of_mh.apply(db, lead, user.user_id)
         if is_booking_done(lead):
             ensure_insurance_case(db, lead, user.user_id)      # BOOKING DONE -> insurance starts
     db.commit()
@@ -486,6 +503,10 @@ def add_followup(lead_id: int, body: FollowupCreate,
 
     # ---- call details: an enquiry call is only counted when they are filled in ----
     disp = db.get(Disposition, body.disposition_id) if body.disposition_id else None
+    if body.opportunity_status_id:
+        _o = db.get(OpportunityStatus, body.opportunity_status_id)
+        if _o and _o.name.strip().upper() == out_of_mh.OUT_OF_MH:
+            out_of_mh.guard(lead)
     for fld in ("showroom_visit", "test_ride_interest"):
         v = getattr(body, fld)
         if v is not None and v.upper() not in CHOICES:
@@ -515,7 +536,9 @@ def add_followup(lead_id: int, body: FollowupCreate,
     db.add(LeadFollowup(lead_id=lead_id, user_id=user.user_id, remark=body.remark,
                         contacted=body.contacted, disposition_id=body.disposition_id,
                         opportunity_status_id=body.opportunity_status_id,
-                        next_followup_at=body.next_followup_at))
+                        next_followup_at=body.next_followup_at,
+                        call_outcome=(body.call_outcome or "").strip() or None,
+                        customer_feedback=(body.customer_feedback or "").strip() or None))
     if body.disposition_id:
         lead.current_disposition_id = body.disposition_id
     if body.opportunity_status_id:
@@ -528,6 +551,9 @@ def add_followup(lead_id: int, body: FollowupCreate,
         lead.first_contact_at = now_ist()
     update_callback_reminder(lead, disp.name if disp else None)   # Call Later -> reminder in 1 hour
     db.flush(); db.refresh(lead)
+    if out_of_mh.apply(db, lead, user.user_id):            # Out of MH -> lead leaves the working list
+        db.commit()
+        return {"ok": True, "removed": True}
     if is_booking_done(lead):
         ensure_insurance_case(db, lead, user.user_id)      # BOOKING DONE -> insurance starts
     db.commit()

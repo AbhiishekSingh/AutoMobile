@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import api from '../../lib/api'
 import Layout from '../../components/Layout'
+import { useAuth } from '../../lib/auth'
 import { Empty, Loading, fmtDate, fmtDateTime } from '../../components/ui'
 
 const rs = (n) => (n == null ? '—' : `₹ ${Math.round(Number(n)).toLocaleString('en-IN')}`)
 const err = (e) => e.response?.data?.detail || 'Something went wrong.'
-const TABS = [['summary', 'Summary'], ['payments', 'Payments & reconciliation'], ['bills', 'Payables'], ['refunds', 'Cancellations & refunds'], ['customers', 'Customer-wise']]
+const TABS = [['summary', 'Summary'], ['payments', 'Payments & reconciliation'], ['bills', 'Payables'], ['refunds', 'Cancellations & refunds'], ['customers', 'Customer-wise'], ['permissions', 'Permissions']]
 const PS = { PAID: 'Paid', PARTIALLY_PAID: 'Part-paid', PENDING: 'Pending' }
 const Tile = ({ label, value, sub }) => <div className="card" style={{ padding: 12 }}><div className="muted-note">{label}</div><div style={{ fontSize: 22, fontWeight: 700 }}>{value}</div>{sub && <div className="muted-note">{sub}</div>}</div>
 const Grid = ({ children }) => <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 10, marginBottom: 16 }}>{children}</div>
@@ -17,20 +18,26 @@ export default function AccountsPage() {
   const [tab, setTab] = useState('summary')
   const [branch, setBranch] = useState('')
   const [branches, setBranches] = useState([])
+  const { user } = useAuth()
+  const [perm, setPerm] = useState(null)       // { mine: {ACTION: bool}, matrix, can_configure, ... }
+  const loadPerm = useCallback(() => api.get('/accounts/permissions').then((r) => setPerm(r.data)).catch((e) => setPerm({ mine: {}, can_configure: false, error: err(e) })), [])
+  useEffect(() => { loadPerm() }, [loadPerm])
+  const can = perm?.mine || {}
   useEffect(() => { api.get('/accounts/summary').then((r) => setBranches(r.data.branches)).catch(() => {}) }, [])
   const bp = branch ? { branch_id: branch } : {}
   return (
     <Layout title="Accounts" sub="Collections, bank reconciliation, payables and refunds">
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-        {TABS.map(([k, l]) => <button key={k} className={`btn btn-sm ${tab === k ? 'btn-primary' : 'btn-outline'}`} onClick={() => setTab(k)}>{l}</button>)}
+        {TABS.filter(([k]) => k !== 'permissions' || ['OWNER', 'ADMIN'].includes(user?.role)).map(([k, l]) => <button key={k} className={`btn btn-sm ${tab === k ? 'btn-primary' : 'btn-outline'}`} onClick={() => setTab(k)}>{l}</button>)}
         <select className="input" style={{ maxWidth: 180, marginLeft: 'auto' }} value={branch} onChange={(e) => setBranch(e.target.value)}>
           <option value="">All branches</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
       </div>
       {tab === 'summary' && <Summary bp={bp} />}
-      {tab === 'payments' && <Payments bp={bp} />}
-      {tab === 'bills' && <Bills bp={bp} branches={branches} />}
-      {tab === 'refunds' && <Refunds bp={bp} />}
+      {tab === 'payments' && <Payments bp={bp} can={can} />}
+      {tab === 'bills' && <Bills bp={bp} branches={branches} can={can} />}
+      {tab === 'refunds' && <Refunds bp={bp} can={can} />}
       {tab === 'customers' && <Customers bp={bp} />}
+      {tab === 'permissions' && <Permissions perm={perm} onSaved={loadPerm} />}
     </Layout>
   )
 }
@@ -54,7 +61,7 @@ function Summary({ bp }) {
     </Grid></>)
 }
 
-function Payments({ bp }) {
+function Payments({ bp, can }) {
   const [rows, setRows] = useState(null)
   const [f, setF] = useState({ recon: 'PENDING', mode: '', q: '', date_from: '', date_to: '' })
   const [sel, setSel] = useState({})
@@ -75,19 +82,19 @@ function Payments({ bp }) {
       <input className="input" style={{ maxWidth: 190 }} placeholder="Search customer / receipt / UTR" value={f.q} onChange={set('q')} />
     </div>
     <div className="card-pad"><Msg m={m} />
-      {ids.length > 0 && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+      {can.RECONCILE && ids.length > 0 && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
         <b>{ids.length} selected · {rs(total)}</b><input className="input" style={{ maxWidth: 240 }} placeholder="Bank statement ref (optional)" value={ref} onChange={(e) => setRef(e.target.value)} />
         <button className="btn btn-primary btn-sm" onClick={recon}>Mark reconciled</button></div>}
       <div className="table-wrap"><table className="data-table"><thead><tr><th></th><th>Date</th><th>Receipt</th><th>Customer</th><th>Branch</th><th>Mode</th><th>Reference</th><th style={{ textAlign: 'right' }}>Amount</th><th>Bank</th></tr></thead>
         <tbody>{(rows || []).map((r) => <tr key={r.payment_id}>
-          <td>{!r.reconciled && <input type="checkbox" checked={!!sel[r.payment_id]} onChange={(e) => setSel({ ...sel, [r.payment_id]: e.target.checked })} />}</td>
+          <td>{can.RECONCILE && !r.reconciled && <input type="checkbox" checked={!!sel[r.payment_id]} onChange={(e) => setSel({ ...sel, [r.payment_id]: e.target.checked })} />}</td>
           <td>{fmtDate(r.payment_date)}</td><td>{r.receipt_no}</td><td>{r.customer}<div className="muted-note">{r.booking_no}</div></td><td>{r.branch || '—'}</td><td>{r.mode_label}</td><td>{r.reference || '—'}</td>
           <td style={{ textAlign: 'right' }}>{rs(r.amount)}</td>
-          <td>{r.reconciled ? <span><span className="badge badge-green">Reconciled</span> <a href="#" onClick={(e) => { e.preventDefault(); undo(r.payment_id) }} className="muted-note" title={`${r.reconciled_by || ''} ${r.bank_ref || ''}`}>undo</a></span> : <span className="badge badge-amber">Pending</span>}</td></tr>)}</tbody></table>
+          <td>{r.reconciled ? <span><span className="badge badge-green">Reconciled</span> {can.RECONCILE && <a href="#" onClick={(e) => { e.preventDefault(); undo(r.payment_id) }} className="muted-note" title={`${r.reconciled_by || ''} ${r.bank_ref || ''}`}>undo</a>}</span> : <span className="badge badge-amber">Pending</span>}</td></tr>)}</tbody></table>
         {rows === null && <Loading />}{rows && !rows.length && <Empty>No payments.</Empty>}</div></div></div>)
 }
 
-function Bills({ bp, branches }) {
+function Bills({ bp, branches, can }) {
   const [d, setD] = useState(null)
   const [st, setSt] = useState('PENDING')
   const [form, setForm] = useState(null)
@@ -109,7 +116,7 @@ function Bills({ bp, branches }) {
     <Msg m={m} />
     <div className="card"><div className="card-header" style={{ gap: 8 }}>
       <select className="input" style={{ maxWidth: 150 }} value={st} onChange={(e) => setSt(e.target.value)}><option value="PENDING">Pending</option><option value="PAID">Paid</option><option value="">All</option></select>
-      <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setForm({ vendor: '', category: 'BIKE_PURCHASE', branch_id: '', bill_no: '', bill_date: new Date().toISOString().slice(0, 10), due_date: '', amount: '', note: '' })}>+ Add bill</button></div>
+      {can.BILLS && <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setForm({ vendor: '', category: 'BIKE_PURCHASE', branch_id: '', bill_no: '', bill_date: new Date().toISOString().slice(0, 10), due_date: '', amount: '', note: '' })}>+ Add bill</button>}</div>
       <div className="card-pad">
         {form && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 10, marginBottom: 12 }}>
           <div className="field"><label>Vendor *</label><input className="input" value={form.vendor || ''} onChange={S('vendor')} /></div>
@@ -131,11 +138,11 @@ function Bills({ bp, branches }) {
           <tbody>{d.bills.map((b) => <tr key={b.id}><td>{b.vendor}</td><td>{b.category_label}</td><td>{b.branch}</td><td>{b.bill_no || '—'}<div className="muted-note">{fmtDate(b.bill_date)}</div></td>
             <td>{b.due_date ? fmtDate(b.due_date) : '—'}{b.overdue && <span className="badge badge-amber" style={{ marginLeft: 4 }}>Overdue</span>}</td><td style={{ textAlign: 'right' }}>{rs(b.amount)}</td>
             <td>{b.status === 'PAID' ? <span className="badge badge-green">Paid {fmtDate(b.paid_date)}</span> : 'Pending'}</td>
-            <td>{b.status === 'PENDING' && <><button className="btn btn-outline btn-sm" onClick={() => setForm({ ...b, amount: b.amount, branch_id: b.branch_id || '' })}>Edit</button> <button className="btn btn-primary btn-sm" onClick={() => setPay({ id: b.id })}>Pay</button></>}</td></tr>)}</tbody></table>
+            <td>{b.status === 'PENDING' && <>{can.BILLS && <button className="btn btn-outline btn-sm" onClick={() => setForm({ ...b, amount: b.amount, branch_id: b.branch_id || '' })}>Edit</button>} {can.PAY_BILL && <button className="btn btn-primary btn-sm" onClick={() => setPay({ id: b.id })}>Pay</button>}</>}</td></tr>)}</tbody></table>
           {!d.bills.length && <Empty>No bills.</Empty>}</div></div></div></>)
 }
 
-function Refunds({ bp }) {
+function Refunds({ bp, can }) {
   const [d, setD] = useState(null)
   const [f, setF] = useState(null)
   const [m, setM] = useState(null)
@@ -161,7 +168,7 @@ function Refunds({ bp }) {
     <div className="card"><div className="table-wrap"><table className="data-table"><thead><tr><th>Booking</th><th>Customer</th><th>Branch</th><th style={{ textAlign: 'right' }}>Received</th><th style={{ textAlign: 'right' }}>Refund</th><th>Status</th><th></th></tr></thead>
       <tbody>{d.rows.map((r) => <tr key={r.lead_id}><td>{r.booking_no}</td><td>{r.customer}</td><td>{r.branch || '—'}</td><td style={{ textAlign: 'right' }}>{rs(r.received)}</td><td style={{ textAlign: 'right' }}>{rs(r.refund_amount)}</td>
         <td>{LBL[r.refund_status]}{r.processed_date && ` · ${fmtDate(r.processed_date)}`}</td>
-        <td>{r.refund_status !== 'PROCESSED' && r.refund_status !== 'NOTHING_TO_REFUND' && <button className="btn btn-outline btn-sm" onClick={() => setF({ lead_id: r.lead_id, customer: r.customer, received: r.received, amount: r.refund_amount ?? r.received, mode: '', reference: '', note: r.note || '', processed_date: '' })}>{r.refund_status === 'NOT_SET' ? 'Set refund' : 'Update'}</button>}</td></tr>)}</tbody></table>
+        <td>{can.REFUND && r.refund_status !== 'PROCESSED' && r.refund_status !== 'NOTHING_TO_REFUND' && <button className="btn btn-outline btn-sm" onClick={() => setF({ lead_id: r.lead_id, customer: r.customer, received: r.received, amount: r.refund_amount ?? r.received, mode: '', reference: '', note: r.note || '', processed_date: '' })}>{r.refund_status === 'NOT_SET' ? 'Set refund' : 'Update'}</button>}</td></tr>)}</tbody></table>
       {!d.rows.length && <Empty>No cancelled bookings.</Empty>}</div></div></>)
 }
 
@@ -187,4 +194,42 @@ function Customers({ bp }) {
         <tbody>{(rows || []).map((r) => <tr key={r.lead_id} style={{ cursor: 'pointer' }} onClick={() => show(r.lead_id)}><td>{r.booking_no}</td><td>{r.customer}<div className="muted-note">{r.mobile}</div></td><td>{r.branch || '—'}</td><td>{r.stage.replace(/_/g, ' ')}</td>
           <td style={{ textAlign: 'right' }}>{rs(r.cost)}</td><td style={{ textAlign: 'right' }}>{rs(r.paid)}</td><td style={{ textAlign: 'right' }}>{rs(r.outstanding)}</td><td>{PS[r.pay_status]}</td></tr>)}</tbody></table>
         {rows === null && <Loading />}{rows && !rows.length && <Empty>No customers.</Empty>}</div></div></>)
+}
+
+// Who may change things in Accounts. Everyone who opens Accounts can view; the Owner is never restricted.
+function Permissions({ perm, onSaved }) {
+  const [draft, setDraft] = useState(null)
+  const [m, setM] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (perm?.matrix) setDraft(JSON.parse(JSON.stringify(perm.matrix))) }, [perm])
+  if (perm?.error) return <div className="hint" style={{ background: 'var(--red-light)', color: '#7a2318' }}>Could not load permissions: {perm.error}. Restart the backend with the step 36 files (it creates the new table on start-up) and refresh.</div>
+  if (!perm || !draft) return <Loading />
+  const roles = perm.roles
+  const changed = []
+  perm.actions.forEach((a) => roles.filter((r) => r !== 'OWNER').forEach((r) => { if (draft[a.key][r] !== perm.matrix[a.key][r]) changed.push({ action: a.key, role: r, allowed: draft[a.key][r] }) }))
+  async function save() {
+    setBusy(true); setM(null)
+    try { await api.put('/accounts/permissions', changed); setM({ ok: true, text: 'Permissions saved.' }); onSaved() }
+    catch (e) { setM({ ok: false, text: err(e) }) } finally { setBusy(false) }
+  }
+  return (
+    <div className="card">
+      <div className="card-header"><h3>Who can edit Accounts</h3></div>
+      <div className="card-pad">
+        <Msg m={m} />
+        <div className="muted-note" style={{ marginBottom: 12 }}>Owner, GM and Admin can always <b>see</b> Accounts. Tick the roles that may also <b>change</b> things. The Owner always has every permission. Every change is written to the audit log.</div>
+        <div className="table-wrap"><table className="data-table">
+          <thead><tr><th>Action</th>{roles.map((r) => <th key={r} style={{ textAlign: 'center' }}>{r === 'OWNER' ? 'Owner' : r === 'GM' ? 'GM' : 'Admin'}</th>)}</tr></thead>
+          <tbody>{perm.actions.map((a) => (
+            <tr key={a.key}><td className="cell-primary">{a.label}</td>
+              {roles.map((r) => (<td key={r} style={{ textAlign: 'center' }}>
+                <input type="checkbox" checked={!!draft[a.key][r]} disabled={r === 'OWNER'}
+                       onChange={(e) => setDraft({ ...draft, [a.key]: { ...draft[a.key], [r]: e.target.checked } })} /></td>))}</tr>))}</tbody>
+        </table></div>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <button className="btn btn-primary btn-sm" disabled={busy || changed.length === 0} onClick={save}>{busy ? 'Saving…' : `Save changes${changed.length ? ` (${changed.length})` : ''}`}</button>
+          <button className="btn btn-outline btn-sm" disabled={changed.length === 0} onClick={() => setDraft(JSON.parse(JSON.stringify(perm.matrix)))}>Cancel</button>
+        </div>
+      </div>
+    </div>)
 }

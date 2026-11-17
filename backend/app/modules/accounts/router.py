@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db, now_ist
 from app.core.deps import get_current_user, require_roles
 from app.modules.accounts import service as svc
-from app.modules.accounts.models import PaymentRecon, Refund, VendorBill
+from app.modules.accounts.models import AccountsPermission, PaymentRecon, Refund, VendorBill
 from app.modules.audit.service import record_changes
 from app.modules.leads.models import Lead
 from app.modules.owner.service import sales_snapshot
@@ -34,6 +34,47 @@ router = APIRouter(prefix="/accounts", tags=["accounts"], dependencies=[Depends(
 
 
 def _f(v): return float(v) if v is not None else None
+
+
+def need(action: str):
+    """Dependency: the logged-in role must be allowed to do this accounting action (set under Permissions)."""
+    def check(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+        if not svc.can(db, user.role.value, action):
+            raise HTTPException(403, f"You do not have permission to: {svc.ACTIONS[action].lower()}. Ask the Owner to allow it.")
+    return Depends(check)
+
+
+class PermIn(BaseModel):
+    action: str
+    role: str
+    allowed: bool
+
+
+@router.get("/permissions")
+def get_permissions(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    m = svc.permission_map(db)
+    return {"actions": [{"key": k, "label": v} for k, v in svc.ACTIONS.items()], "roles": ["OWNER", *svc.CONFIGURABLE_ROLES],
+            "matrix": m, "mine": {a: m[a].get(user.role.value, False) for a in svc.ACTIONS},
+            "can_configure": user.role.value in ("OWNER", "ADMIN")}
+
+
+@router.put("/permissions")
+def set_permissions(body: list[PermIn], user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.role.value not in ("OWNER", "ADMIN"):
+        raise HTTPException(403, "Only the Owner or Admin can change who may edit accounts")
+    for p in body:
+        if p.action not in svc.ACTIONS: raise HTTPException(400, f"Unknown action {p.action}")
+        if p.role not in svc.CONFIGURABLE_ROLES: raise HTTPException(400, "The Owner always keeps every permission")
+        row = db.query(AccountsPermission).filter(AccountsPermission.action == p.action, AccountsPermission.role == p.role).first()
+        before = {"allowed": row.allowed if row else True}
+        if not row:
+            row = AccountsPermission(action=p.action, role=p.role, allowed=p.allowed); db.add(row); db.flush()
+        row.allowed, row.updated_by_user_id = p.allowed, user.user_id
+        if before["allowed"] != p.allowed:
+            record_changes(db, entity_type="accounts_permission", entity_id=row.id, before=before, after=row, fields=("allowed",),
+                           changed_by_user_id=user.user_id)
+    db.commit()
+    return get_permissions(user, db)
 
 
 @router.get("/summary")
@@ -83,7 +124,7 @@ class ReconIn(BaseModel):
     note: Optional[str] = None
 
 
-@router.post("/payments/reconcile")
+@router.post("/payments/reconcile", dependencies=[need("RECONCILE")])
 def reconcile(body: ReconIn, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     if not body.payment_ids: raise HTTPException(400, "Select at least one payment")
     n = 0
@@ -100,7 +141,7 @@ def reconcile(body: ReconIn, user: AppUser = Depends(get_current_user), db: Sess
     return {"reconciled": n}
 
 
-@router.delete("/payments/{payment_id}/reconcile")
+@router.delete("/payments/{payment_id}/reconcile", dependencies=[need("RECONCILE")])
 def unreconcile(payment_id: int, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     rc = db.query(PaymentRecon).filter(PaymentRecon.payment_id == payment_id).first()
     if not rc: raise HTTPException(404, "This payment is not reconciled")
@@ -157,7 +198,7 @@ def _check_bill(d: dict, creating: bool):
     if d.get("due_date") and d.get("bill_date") and d["due_date"] < d["bill_date"]: raise HTTPException(400, "Due date is before the bill date")
 
 
-@router.post("/bills", status_code=201)
+@router.post("/bills", status_code=201, dependencies=[need("BILLS")])
 def add_bill(body: BillIn, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     d = body.model_dump(exclude_unset=True); _check_bill(d, True)
     b = VendorBill(**{k: (v.strip() or None) if isinstance(v, str) else v for k, v in d.items()}, status="PENDING",
@@ -169,7 +210,7 @@ def add_bill(body: BillIn, user: AppUser = Depends(get_current_user), db: Sessio
     return _bill(b)
 
 
-@router.patch("/bills/{bill_id}")
+@router.patch("/bills/{bill_id}", dependencies=[need("BILLS")])
 def edit_bill(bill_id: int, body: BillIn, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     b = db.get(VendorBill, bill_id)
     if not b: raise HTTPException(404, "Bill not found")
@@ -184,7 +225,7 @@ def edit_bill(bill_id: int, body: BillIn, user: AppUser = Depends(get_current_us
     return _bill(b)
 
 
-@router.post("/bills/{bill_id}/pay")
+@router.post("/bills/{bill_id}/pay", dependencies=[need("PAY_BILL")])
 def pay_bill(bill_id: int, body: PayIn, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     b = db.get(VendorBill, bill_id)
     if not b: raise HTTPException(404, "Bill not found")
@@ -222,7 +263,7 @@ def cancellations(branch_id: Optional[int] = None, db: Session = Depends(get_db)
     return {"rows": out, "modes": list(svc.PAY_MODES), **svc.refund_totals(db, branch_id)}
 
 
-@router.put("/cancellations/{lead_id}/refund")
+@router.put("/cancellations/{lead_id}/refund", dependencies=[need("REFUND")])
 def set_refund(lead_id: int, body: RefundIn, user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     row = next((r for r in svc.cancelled_rows(db) if r[0].lead_id == lead_id), None)
     if not row: raise HTTPException(404, "This is not a cancelled booking")

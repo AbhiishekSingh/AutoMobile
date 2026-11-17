@@ -31,12 +31,15 @@ class InsuranceCase(Base):
     pdf_original_name = Column(String)
     pdf_stored_path = Column(String)
     pdf_size_bytes = Column(Integer)
+    docs_verified_at = Column(DateTime)       # "Documents verified" step
+    docs_verified_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     completed_at = Column(DateTime)
     completed_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     updated_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     created_at = Column(DateTime, default=now_ist, nullable=False)
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)
 
+    docs_verified_by = relationship("AppUser", foreign_keys=[docs_verified_by_user_id])
     completed_by = relationship("AppUser", foreign_keys=[completed_by_user_id])
 
 
@@ -47,6 +50,7 @@ class RtoCase(Base):
     status = Column(String, nullable=False, default="PENDING")   # PENDING / IN_PROCESS / REGISTERED
     registration_type = Column(String)      # REGULAR / CHOICE / BH_PASSING
     registration_no = Column(String)        # the online registration number
+    choice_number = Column(String)          # the chosen number, when registration_type is CHOICE
     registration_date = Column(Date)
     delivery_date = Column(Date)            # bike delivery date, as told to the PBA
     updated_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
@@ -65,6 +69,7 @@ class InvoiceDetail(Base):
     chassis_no = Column(String, unique=True, nullable=False)
     engine_no = Column(String, unique=True, nullable=False)
     registration_type = Column(String)          # REGULAR / CHOICE / BH_PASSING
+    choice_number = Column(String)              # applicable when registration_type is CHOICE
     hypothecation = Column(String)              # HP: bank name, empty = none
     nominee_name = Column(String)
     nominee_relation = Column(String)

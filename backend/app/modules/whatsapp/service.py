@@ -26,10 +26,10 @@ OK = ("SENT", "DELIVERED", "READ")
 LINK_KEYS = {"GOOGLE_REVIEW_URL": "Google review link", "INSTAGRAM_URL": "Instagram link", "KTM_APP_URL": "KTM India app link"}
 TEMPLATE = {"WELCOME": "WA_TPL_WELCOME", "RECEIPT": "WA_TPL_RECEIPT", "INSURANCE": "WA_TPL_INSURANCE",
             "DELIVERY": "WA_TPL_DELIVERY", "ENGAGEMENT": "WA_TPL_ENGAGEMENT", "REVIEW": "WA_TPL_REVIEW",
-            "TEST_RIDE": "WA_TPL_TEST_RIDE"}
+            "TEST_RIDE": "WA_TPL_TEST_RIDE", "RTO_DOCS": "WA_TPL_RTO_DOCS", "INSURANCE_PBA": "WA_TPL_INSURANCE_PBA"}
 KIND_LABEL = {"WELCOME": "Welcome message", "RECEIPT": "Booking receipt", "INSURANCE": "Insurance policy",
               "DELIVERY": "Delivery receipt", "ENGAGEMENT": "Delivery engagement links", "REVIEW": "Google review link",
-              "TEST_RIDE": "Test ride scheduled"}
+              "TEST_RIDE": "Test ride scheduled", "RTO_DOCS": "RTO documents request", "INSURANCE_PBA": "Insurance ready (PBA alert)"}
 
 
 # ---------- links ----------
@@ -84,6 +84,34 @@ def build_insurance(db, lead, **_):
     return {**_customer(lead), "params": [lead.customer.full_name, _vehicle(lead), case.policy_no or "-"]}
 
 
+def build_rto_docs(db, lead, **_):
+    """Asks the customer for the RTO papers (the list itself is in the approved template text)."""
+    br = lead.branch.name if lead.branch else "S.K. Automobiles"
+    return {**_customer(lead), "params": [lead.customer.full_name, _vehicle(lead), br]}
+
+
+def build_insurance_pba(db, lead, recipient="PBA", **_):
+    """Alert to the PBA once the policy PDF is uploaded. The link opens the lead in the CRM (login required)."""
+    from app.modules.users.models import AppUser, Branch
+    case = db.query(InsuranceCase).filter(InsuranceCase.lead_id == lead.lead_id).first()
+    if not case or case.status != "COMPLETED":
+        raise HTTPException(400, "The insurance policy has not been completed yet")
+    pba = db.get(AppUser, lead.assigned_user_id) if lead.assigned_user_id else None
+    if not pba:
+        raise HTTPException(400, "This customer has no PBA assigned")
+    br = db.get(Branch, lead.branch_id) if lead.branch_id else None
+    to = (br.whatsapp_number if br and br.whatsapp_number else None) or pba.phone
+    if not to:
+        raise HTTPException(400, "No branch WhatsApp number saved (Admin: Branches page)")
+    from app.modules.handoffs import service as hs
+    from app.modules.payments import service as pay
+    bk = pay.get_booking(db, lead.lead_id)
+    link = f"{settings.PUBLIC_APP_URL.rstrip('/')}/leads/{lead.lead_id}"
+    return {"to": to, "lead": lead, "recipient": "PBA",
+            "params": [pba.full_name, lead.customer.full_name, (bk.booking_no if bk else lead.enquiry_no), _vehicle(lead),
+                       hs.POLICY_TYPES[case.policy_type][1], case.policy_no or "-", link]}
+
+
 def build_delivery(db, lead, **_):
     rec = db.query(DeliveryRecord).filter(DeliveryRecord.lead_id == lead.lead_id).first()
     if not rec or not rec.generated_at:
@@ -136,7 +164,7 @@ def build_test_ride(db, lead, ref_id, recipient="CUSTOMER", actor=None, **_):
 
 
 BUILDERS = {"WELCOME": build_welcome, "RECEIPT": build_receipt, "INSURANCE": build_insurance, "DELIVERY": build_delivery,
-            "ENGAGEMENT": build_engagement, "REVIEW": build_review, "TEST_RIDE": build_test_ride}
+            "ENGAGEMENT": build_engagement, "REVIEW": build_review, "TEST_RIDE": build_test_ride, "RTO_DOCS": build_rto_docs, "INSURANCE_PBA": build_insurance_pba}
 
 
 def _document(db, kind, lead, ref_id, lang):
@@ -169,6 +197,10 @@ def _deliver(db, row: WhatsappMessage, lead) -> WhatsappMessage:
         row.status, row.error = "FAILED", str(e)
     except Exception as e:   # never let a WhatsApp problem break the screen action
         row.status, row.error = "FAILED", f"Unexpected error: {e.__class__.__name__}"
+    if row.status == "FAILED":
+        from app.modules.sync_log.service import log_failure
+        log_failure(db, "WHATSAPP", row.error, ref_type="lead", ref_id=lead.lead_id,
+                    ref_label=f"{KIND_LABEL.get(row.kind, row.kind)} to {row.to_number}")
     return row
 
 

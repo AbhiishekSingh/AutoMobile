@@ -53,6 +53,27 @@ def _update_role_enum(engine) -> None:
             conn.execute(text("ALTER TYPE role ADD VALUE IF NOT EXISTS 'INSURANCE'"))
 
 
+INDEXES = (
+    "lead (branch_id)", "lead (assigned_user_id)", "lead (enquiry_stage)", "lead (enquiry_at)",
+    "lead (next_followup_at)", "lead (opportunity_status_id)", "lead (customer_id)", "lead (model_id)",
+    "lead (branch_id, enquiry_stage, enquiry_at)", "lead_followup (lead_id)", "lead_followup (created_at)",
+    "lead_followup (next_followup_at)", "test_ride (lead_id)", "quotation (lead_id)", "payment (lead_id)",
+    "customer_document (lead_id)", "owner_stage_approval (stage, status)", "insurance_case (status)",
+    "rto_case (status)", "lead_stage_history (lead_id)")
+
+
+def _create_indexes(engine) -> None:
+    """Speed for big tables (70,000+ leads a week). Each one is created on its own so one failure
+    (e.g. a column that does not exist yet) never stops the rest."""
+    for spec in INDEXES:
+        name = "ix_" + spec.replace(" (", "_").replace(", ", "_").replace(")", "")
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {spec}"))
+        except Exception:
+            pass
+
+
 def apply_schema_updates(engine) -> None:
     _update_stage_enum(engine)
     _update_role_enum(engine)
@@ -67,11 +88,20 @@ def apply_schema_updates(engine) -> None:
     from app.modules.targets.models import SalesTarget
     from app.modules.whatsapp.models import DealerLink, WhatsappMessage
     from app.modules.users.models import UserBranch
-    from app.modules.accounts.models import PaymentRecon, Refund, VendorBill
+    from app.modules.accounts.models import AccountsPermission, PaymentRecon, Refund, VendorBill
     from app.modules.final_review.models import FinalReview
+    from app.modules.rto_docs.models import RtoDocProfile
+    from app.modules.sync_log.models import SyncFailure
+    from app.modules.owner_flow.models import OwnerStageApproval
 
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE lead ADD COLUMN IF NOT EXISTS branch_code VARCHAR"))
+        conn.execute(text("ALTER TABLE lead_followup ADD COLUMN IF NOT EXISTS call_outcome VARCHAR"))
+        conn.execute(text("ALTER TABLE rto_case ADD COLUMN IF NOT EXISTS choice_number VARCHAR"))
+        conn.execute(text("ALTER TABLE insurance_case ADD COLUMN IF NOT EXISTS docs_verified_at TIMESTAMP"))
+        conn.execute(text("ALTER TABLE insurance_case ADD COLUMN IF NOT EXISTS docs_verified_by_user_id INTEGER"))
+        conn.execute(text("ALTER TABLE invoice_detail ADD COLUMN IF NOT EXISTS choice_number VARCHAR"))
+        conn.execute(text("ALTER TABLE lead_followup ADD COLUMN IF NOT EXISTS customer_feedback TEXT"))
         conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS phone VARCHAR"))
         conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS login_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
         conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS pin_hash VARCHAR"))
@@ -84,7 +114,7 @@ def apply_schema_updates(engine) -> None:
                          ("callback_remind_at", "TIMESTAMP"), ("callback_notified", "BOOLEAN DEFAULT FALSE")):
             conn.execute(text(f"ALTER TABLE lead ADD COLUMN IF NOT EXISTS {col} {typ}"))
         # checkfirst=True (the default): does nothing if the table exists
-        Base.metadata.create_all(bind=conn, tables=[UserBranch.__table__, PaymentRecon.__table__, VendorBill.__table__, Refund.__table__, FinalReview.__table__,
+        Base.metadata.create_all(bind=conn, tables=[UserBranch.__table__, PaymentRecon.__table__, AccountsPermission.__table__, VendorBill.__table__, Refund.__table__, FinalReview.__table__, RtoDocProfile.__table__, SyncFailure.__table__, OwnerStageApproval.__table__,
                                                     CustomerDetailHistory.__table__,
                                                     CustomerDocument.__table__,
                                                     StageHistory.__table__,
@@ -106,3 +136,4 @@ def apply_schema_updates(engine) -> None:
                          ("engine_warranty_years", "INTEGER")):
             conn.execute(text(f"ALTER TABLE quotation ADD COLUMN IF NOT EXISTS {col} {typ}"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_payment_agree_token ON payment (agree_token)"))
+    _create_indexes(engine)

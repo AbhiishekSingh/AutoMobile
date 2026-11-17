@@ -53,6 +53,7 @@ def build_delivery_pdf(data: dict, ack: dict | None = None) -> bytes:
                       ("Invoice no. / date", f'{data["invoice_no"] or "-"} / {_d(data["invoice_date"])}'),
                       ("Registration no.", data["registration_no"] or "-"),
                       ("Number plate type", data["plate_type"] or "-"),
+                      *([("Choice number", data["choice_number"] or "-")] if data.get("plate_type") == "Choice No." else []),
                       ("Delivery location", data["branch_name"])])
     acc = lambda ok: "[X]" if ok else "[ ]"
     block("ACCESSORIES &amp; WARRANTY PROVIDED",

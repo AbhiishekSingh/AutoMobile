@@ -47,6 +47,9 @@ def add_payment(lead_id: int, body: PaymentCreate, user: AppUser = Depends(get_c
     record_changes(db, entity_type="payment", entity_id=pay.payment_id,
                    before={"amount": None, "mode": None}, after=pay,
                    fields=("amount", "mode"), changed_by_user_id=user.user_id)
+    db.flush()
+    from app.modules.owner_flow import service as of
+    of.maybe_start_insurance(db, lead, user.user_id)      # DP / full payment may complete the checklist
     db.commit()
     db.refresh(lead)
     out = svc.summary(db, lead)

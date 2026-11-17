@@ -102,6 +102,8 @@ export default function ImportPage() {
               <Stat label="Salesperson unmatched" value={result.salesperson_unmatched} accent="#D97706" />
               <Stat label="Put in unassigned pool" value={result.unassigned_pool ?? 0} accent="#D97706" />
               <Stat label="PBA from another branch" value={result.cross_branch ?? 0} accent="#D97706" />
+              <Stat label="Possible duplicate mobiles" value={result.possible_duplicates ?? 0} accent="#D97706" />
+              <Stat label="Invalid / missing mobile" value={result.invalid_mobile ?? 0} accent="#DC2626" />
               <Stat label="Skipped (duplicates)" value={result.skipped_duplicates} accent="#D97706" />
               <Stat label="Skipped (invalid)" value={result.skipped_invalid} accent="#DC2626" />
             </div>

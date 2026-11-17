@@ -41,3 +41,7 @@ Follow us on Instagram for delivery highlights and the latest KTM updates: {{4}}
 Interested in a test ride? Contact us to schedule one. Thank you for choosing us. RIDE ORANGE! - Team S.K. Automobiles
 
 **test_ride_scheduled** - Hello {{1}}, a test ride is scheduled for {{2}} on the {{3}} - date {{4}}, time {{5}}, at {{6}}. Contact: {{7}}.
+
+**rto_documents_request** (3 variables; setting WA_TPL_RTO_DOCS) - Dear {{1}}, to start the RTO registration of your {{2}} at {{3}}, please share these documents at the earliest: Tax Invoice; Choice No. / Regular No. / BH passing preference; Aadhaar Card; mobile number linked to Aadhaar; PAN Card; Electricity Bill (address must match Aadhaar); passport-size photograph; Voter ID Card. If you stay in a rented property, also share: Option 1 - Registered Rent Agreement, Index II, Police NOC; or Option 2 - Notarized Rent Agreement, Police NOC, Electricity Bill. All documents must be in PDF format, maximum 100 KB each, clear, valid and readable. Thank you - Team S.K. Automobiles
+
+**insurance_ready_pba** (7 variables; setting WA_TPL_INSURANCE_PBA; sent to the branch WhatsApp number) - Hello {{1}}, the insurance policy for customer {{2}} (Booking {{3}}, {{4}}) is ready. Insurance company: {{5}}, Policy no.: {{6}}. Open the policy PDF in the CRM (login required): {{7}}

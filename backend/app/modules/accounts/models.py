@@ -3,8 +3,9 @@
   PaymentRecon  a customer payment matched against the bank statement (no row = still pending)
   VendorBill    money the dealership owes (bike supplier, insurance, accessories ...)
   Refund        money going back to a customer whose booking was cancelled
+  AccountsPermission  which role may do which accounting action (no row = allowed, as before)
 """
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base, now_ist
@@ -58,4 +59,16 @@ class Refund(Base):
     created_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     updated_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     created_at = Column(DateTime, default=now_ist, nullable=False)
+    updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)
+
+
+class AccountsPermission(Base):
+    """One row per (action, role) that was changed from the default (allowed). The Owner is never restricted."""
+    __tablename__ = "accounts_permission"
+    __table_args__ = (UniqueConstraint("action", "role", name="uq_accounts_permission_action_role"),)
+    id = Column(Integer, primary_key=True)
+    action = Column(String, nullable=False)
+    role = Column(String, nullable=False)
+    allowed = Column(Boolean, nullable=False, default=True)
+    updated_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)

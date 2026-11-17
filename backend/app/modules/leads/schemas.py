@@ -58,6 +58,9 @@ class FollowupOut(BaseModel):
     opportunity_status: Optional[str]
     next_followup_at: Optional[datetime]
     by: Optional[str]
+    by_role: Optional[str] = None
+    call_outcome: Optional[str] = None
+    customer_feedback: Optional[str] = None
 
 
 class TestRideOut(BaseModel):
@@ -224,6 +227,8 @@ class FollowupCreate(BaseModel):
     color: Optional[str] = None
     showroom_visit: Optional[str] = None       # YES / NO / PLANNED
     test_ride_interest: Optional[str] = None   # YES / NO / PLANNED
+    call_outcome: Optional[str] = None         # CRE: outcome of the call
+    customer_feedback: Optional[str] = None    # CRE: customer feedback
 
 
 class TestRideCreate(BaseModel):

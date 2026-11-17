@@ -269,7 +269,7 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
     summary = {"cross_branch": 0, "unassigned_pool": 0, "rows_read": 0, "leads_created": 0, "customers_new": 0,
                "customers_matched": 0, "customer_details_updated": 0,
                "test_rides_created": 0,
-               "skipped_duplicates": 0, "skipped_invalid": 0,
+               "skipped_duplicates": 0, "skipped_invalid": 0, "possible_duplicates": 0, "invalid_mobile": 0,
                "salesperson_matched": 0, "salesperson_unmatched": 0, "errors": []}
 
     for line_no, row in rows:
@@ -297,9 +297,20 @@ def _process_rows(rows, db: Session, default_branch_id: int | None = None,
             # A phone number already in the CRM = returning customer: the
             # newest details from this file become current, and the details
             # they replace are kept in customer_detail_history (both shown).
+            if len(phone or "") < 10:
+                summary["invalid_mobile"] += 1
+                if len(summary["errors"]) < 50:
+                    summary["errors"].append(f"Row {line_no} ({enquiry_no}): the mobile number is missing or invalid - imported without a usable number")
             cust = find_customer_by_phone(db, phone) if phone else None
             if cust:
                 summary["customers_matched"] += 1
+                # same mobile + a different enquiry number while an enquiry is still open = possible duplicate lead
+                twin = db.query(Lead).filter(Lead.customer_id == cust.customer_id, Lead.enquiry_stage == EnquiryStage.OPEN).first()
+                if twin:
+                    summary["possible_duplicates"] += 1
+                    if len(summary["errors"]) < 50:
+                        summary["errors"].append(f"Row {line_no} ({enquiry_no}): possible duplicate - this mobile already has the open "
+                                                 f"enquiry {twin.enquiry_no}. Imported as a new lead, please check")
                 if update_customer_details(
                         db, cust, {"full_name": name, "pincode": _clean(row.get("PIN Code"))},
                         source="LEADSQUARED", enquiry_no=enquiry_no):
