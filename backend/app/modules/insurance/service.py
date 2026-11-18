@@ -34,7 +34,10 @@ def checklist(db, lead, case) -> list[dict]:
     out = []
     for t in required_types(case):
         d = have.get(t)
-        out.append({"doc_type": t, "label": LABELS[t], "pdf_only": t in PDF_ONLY, "uploaded": bool(d),
+        shared = False
+        if not d and t == "AADHAAR_FB" and have.get("AADHAAR"):
+            d, shared = have["AADHAAR"], True      # the Aadhaar the PBA already uploaded is reused: no second upload needed
+        out.append({"doc_type": t, "label": LABELS[t], "pdf_only": t in PDF_ONLY, "uploaded": bool(d), "from_pba_documents": shared,
                     "doc_id": d.id if d else None, "file_name": docs_svc.mask_name(d.original_name) if d else None,
                     "uploaded_at": d.uploaded_at if d else None,
                     "uploaded_by": d.uploaded_by.full_name if d and d.uploaded_by else None})
