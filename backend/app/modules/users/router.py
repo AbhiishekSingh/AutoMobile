@@ -14,7 +14,7 @@ from app.modules.users.schemas import (PasswordReset, PinSet, UserCreate, UserOu
                                         UserUpdate)
 
 router = APIRouter(prefix="/users", tags=["users"],
-                   dependencies=[Depends(require_roles("ADMIN"))])
+                   dependencies=[Depends(require_roles("ADMIN", "OWNER"))])
 
 USER_TRACKED_FIELDS = ("full_name", "email", "role", "branch_id", "is_active", "login_enabled")
 
@@ -83,6 +83,12 @@ def _check_profile(role: Role, login_enabled: bool, branch_id) -> None:
             raise HTTPException(400, "A PBA without their own login needs a branch")
 
 
+def _guard(actor: AppUser, target_role) -> None:
+    """The Owner manages staff, but only an Admin may create or change Admin accounts."""
+    if actor.role != Role.ADMIN and target_role == Role.ADMIN:
+        raise HTTPException(403, "Only an Admin can create or change an Admin account")
+
+
 # ---------- endpoints ----------
 @router.get("", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db)):
@@ -90,7 +96,8 @@ def list_users(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=UserOut, status_code=201)
-def create_user(body: UserCreate, db: Session = Depends(get_db)):
+def create_user(body: UserCreate, actor: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    _guard(actor, body.role)
     if db.query(AppUser).filter(AppUser.login_id == body.login_id).first():
         raise HTTPException(409, "Login ID already exists")
     branch_id = body.branch_id
@@ -123,6 +130,8 @@ def update_user(user_id: int, body: UserUpdate, actor: AppUser = Depends(get_cur
     user = db.get(AppUser, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    _guard(actor, user.role)
+    _guard(actor, body.role)
     data = body.model_dump(exclude_unset=True)
     branch_ids = data.pop("branch_ids", None)
     new_pin = data.pop("pin", None)
@@ -164,30 +173,37 @@ def update_user(user_id: int, body: UserUpdate, actor: AppUser = Depends(get_cur
 
 
 @router.patch("/{user_id}/deactivate", response_model=UserOut)
-def deactivate_user(user_id: int, db: Session = Depends(get_db)):
+def deactivate_user(user_id: int, actor: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     user = db.get(AppUser, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    _guard(actor, user.role)
+    if user.user_id == actor.user_id:
+        raise HTTPException(400, "You cannot deactivate your own account")
     user.is_active = False
     db.commit(); db.refresh(user)
     return user
 
 
 @router.patch("/{user_id}/activate", response_model=UserOut)
-def activate_user(user_id: int, db: Session = Depends(get_db)):
+def activate_user(user_id: int, actor: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     user = db.get(AppUser, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    _guard(actor, user.role)
     user.is_active = True
     db.commit(); db.refresh(user)
     return user
 
 
 @router.post("/{user_id}/reset-password", response_model=UserOut)
-def reset_password(user_id: int, body: PasswordReset, db: Session = Depends(get_db)):
+def reset_password(user_id: int, body: PasswordReset, actor: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     user = db.get(AppUser, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    _guard(actor, user.role)
+    if len(body.new_password or "") < 6:
+        raise HTTPException(400, "The new password must be at least 6 characters")
     user.hashed_password = hash_password(body.new_password)
     db.commit(); db.refresh(user)
     return user
@@ -198,6 +214,7 @@ def set_pin(user_id: int, body: PinSet, actor: AppUser = Depends(get_current_use
     user = db.get(AppUser, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    _guard(actor, user.role)
     if user.role != Role.PBA:
         raise HTTPException(400, "Only a PBA has a PIN")
     user.pin_hash = hash_password(_clean_pin(body.pin))

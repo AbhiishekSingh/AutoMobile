@@ -1,13 +1,14 @@
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db, require_roles
 from app.modules.leads.models import EnquiryStage, Lead
-from app.modules.stock import service as svc
+from app.modules.stock import bulk, service as svc
 from app.modules.stock.models import StockItem, StockKind, StockMovement
 from app.modules.users.models import AppUser, Role
 
@@ -123,3 +124,25 @@ def movements(item_id: int | None = None, branch_id: int | None = None, move_typ
                            if m.move_type in ("ALLOCATE", "TRANSFER", "RECEIPT", "RECEIVE", "COUNT") else None),
                     "by": m.by_user.full_name if m.by_user else None, "received_by": m.received_by, "note": m.note})
     return out
+
+
+# ---------- bulk upload (Owner / Admin) ----------
+@router.post("/stock/bulk")
+async def stock_bulk(file: UploadFile = File(...), mode: str = Form(...), apply: bool = Form(False),
+                     user: AppUser = Depends(require_roles(*MANAGE)), db: Session = Depends(get_db)):
+    content = await file.read()
+    return bulk.process(db, user, file.filename or "", content, mode, apply, f"Bulk upload {file.filename or ''}".strip())
+
+
+@router.get("/stock/bulk/template", dependencies=[Depends(require_roles(*MANAGE))])
+def stock_bulk_template(format: str = "xlsx"):
+    if format == "csv":
+        return Response(bulk.template_csv(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="stock-upload-template.csv"'})
+    return Response(bulk.template_xlsx(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="stock-upload-template.xlsx"'})
+
+
+@router.get("/stock/bulk/export", dependencies=[Depends(require_roles(*MANAGE))])
+def stock_bulk_export(db: Session = Depends(get_db)):
+    return Response(bulk.export_xlsx(db), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="current-stock.xlsx"'})

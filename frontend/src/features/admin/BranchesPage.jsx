@@ -5,7 +5,7 @@ import api from '../../lib/api'
 
 const EMPTY = { name: '', dealer_code: '', city: '', address: '', contact_no: '', whatsapp_number: '', is_active: true }
 
-export default function BranchesPage() {
+export function BranchesPanel() {
   const [rows, setRows] = useState([])
   const [form, setForm] = useState(EMPTY)
   const [editing, setEditing] = useState(null)
@@ -25,7 +25,7 @@ export default function BranchesPage() {
   const edit = (b) => { setEditing(b.branch_id); setForm({ ...EMPTY, ...Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v ?? ''])), is_active: b.is_active }) }
 
   return (
-    <Layout title="Branches" sub="Admin · branch names, codes and branch WhatsApp numbers">
+    <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 22, alignItems: 'start' }}>
         <div className="card">
           <div className="card-header"><h3>{editing ? 'Edit branch' : 'Add branch'}</h3></div>
@@ -60,6 +60,11 @@ export default function BranchesPage() {
           </div>
         </div>
       </div>
-    </Layout>
+    </>
   )
+}
+
+
+export default function BranchesPage() {
+  return <Layout title="Branches" sub="Admin · branch names, codes and branch WhatsApp numbers"><BranchesPanel /></Layout>
 }

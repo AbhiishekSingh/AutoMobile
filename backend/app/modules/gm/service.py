@@ -76,6 +76,7 @@ def performance(db, date_from, date_to, branch_id=None, pba_id=None, cre_id=None
         if l.lead_id in cancelled: r["cancelled"] += 1
         if l.lead_id in booked and l.enquiry_stage in ACTIVE:
             r["ins_pending"] += 0 if ins.get(l.lead_id) == "COMPLETED" else 1
+        if l.lead_id in booked and l.enquiry_stage in owner_svc.RTO_OPEN:
             r["rto_pending"] += 0 if rto.get(l.lead_id) == "REGISTERED" else 1
     owner = {l.lead_id: l.assigned_user_id for l in leads}
     for lid, s in tr:
@@ -123,7 +124,7 @@ def performance(db, date_from, date_to, branch_id=None, pba_id=None, cre_id=None
         {"key": "OVERDUE_FU", "label": "Overdue follow-ups", "count": wide.filter(Lead.enquiry_stage == S.OPEN, Lead.next_followup_at < now).count(), "dept": "PBA / CRE"},
         {"key": "PAYMENT", "label": "Payment pending", "count": sum(1 for r in snap if r["pay_status"] != "PAID" and (r["outstanding"] or 0) > 0), "dept": "Accounts"},
         {"key": "INSURANCE", "label": "Insurance pending", "count": sum(1 for r in act if r["insurance"] != "COMPLETED"), "dept": "Insurance"},
-        {"key": "RTO", "label": "RTO pending", "count": sum(1 for r in act if r["rto"] != "REGISTERED"), "dept": "RTO"},
+        {"key": "RTO", "label": "RTO pending", "count": sum(1 for r in snap if r["stage"] in owner_svc.RTO_OPEN and r["rto"] != "REGISTERED"), "dept": "RTO"},
         {"key": "INVOICE", "label": "Invoice pending", "count": sum(1 for r in act if r["stage"] != S.INVOICED), "dept": "PBA"},
         {"key": "DELIVERY", "label": "Pending customer deliveries", "count": len(act), "dept": "Showroom"},
         {"key": "FINAL_REVIEW", "label": "Final reviews pending", "count": wide.filter(Lead.enquiry_stage == S.DELIVERED).count(), "dept": "CRE"}]

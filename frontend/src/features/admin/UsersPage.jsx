@@ -9,7 +9,7 @@ const ROLE_LABEL = { BRANCH: 'BRANCH (shared branch login)' }
 // branch_ids: the 1-2 branches a CRE covers
 const EMPTY = { login_id: '', full_name: '', email: '', phone: '', password: '', role: 'PBA', login_enabled: true, pin: '', ls_email: '', ls_name: '', branch_id: '', branch_ids: [] }
 
-export default function Users() {
+export function UsersPanel() {
   const [users, setUsers] = useState([])
   const [branches, setBranches] = useState([])
   const [form, setForm] = useState(EMPTY)
@@ -99,7 +99,7 @@ export default function Users() {
   }
 
   return (
-    <Layout title="User Management" sub="Admin · create, edit, deactivate staff logins">
+    <>
       <div className="grid" style={{ gridTemplateColumns: '1fr 1.6fr', gap: 22, alignItems: 'start', display: 'grid' }}>
         <div className="card">
           <div className="card-header"><h3>{editingId ? 'Edit user' : 'Add user'}</h3></div>
@@ -207,6 +207,11 @@ export default function Users() {
           </div>
         </div>
       </div>
-    </Layout>
+    </>
   )
+}
+
+
+export default function Users() {
+  return <Layout title="User Management" sub="Admin · create, edit, deactivate staff logins"><UsersPanel /></Layout>
 }

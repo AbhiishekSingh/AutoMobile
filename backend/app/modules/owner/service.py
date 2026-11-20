@@ -24,6 +24,8 @@ from app.modules.users.models import AppUser, Branch, Role
 
 PERIODS = ("day", "week", "month", "quarter", "year")
 ACTIVE = (S.BOOKED, S.INSURANCE_DONE, S.RTO_DONE, S.INVOICED)     # booked, not yet delivered
+# RTO can still be open after delivery (same-day delivery: the bike goes out first, the registration follows)
+RTO_OPEN = ACTIVE + (S.DELIVERED,)
 
 
 # ---------- windows ----------
@@ -180,9 +182,10 @@ def dashboard(db: Session, period: str, anchor: date, branch_id=None):
             if r["stage"] in ACTIVE:
                 x["booked_stock"] += 1
                 x["ins_pending"] += 0 if r["insurance"] == "COMPLETED" else 1
-                x["rto_pending"] += 0 if r["rto"] == "REGISTERED" else 1
                 x["delivery_pending"] += 1
                 x["invoice_pending"] += 0 if r["stage"] == S.INVOICED else 1
+            if r["stage"] in RTO_OPEN:
+                x["rto_pending"] += 0 if r["rto"] == "REGISTERED" else 1
         return d
     sp, sb = snap_roll("pba"), snap_roll("branch")
 
@@ -233,10 +236,10 @@ def dashboard(db: Session, period: str, anchor: date, branch_id=None):
 
     def tot(k, d): return sum(v[k] for v in d["branch"].values())
     head = []
-    for key, label in (("leads", "Leads"), ("bookings", "Bookings"), ("invoiced", "Invoiced"), ("delivered", "Delivered"),
+    for key, head_label in (("leads", "Leads"), ("bookings", "Bookings"), ("invoiced", "Invoiced"), ("delivered", "Delivered"),
                        ("cancelled", "Cancelled bookings")):
         c, p = tot(key, cur), tot(key, prev)
-        head.append({"key": key, "label": label, "current": c, "previous": p, "growth": growth(c, p)})
+        head.append({"key": key, "label": head_label, "current": c, "previous": p, "growth": growth(c, p)})
     cc, pc = round(tot("collection_amt", cur)), round(tot("collection_amt", prev))
     head.append({"key": "collection", "label": "Collection (Rs)", "current": cc, "previous": pc, "growth": growth(cc, pc), "money": True})
     tt = sum(tb.values()) if use_targets else None
@@ -280,8 +283,8 @@ def pending_list(db: Session, kind: str, branch_id=None):
             d = f"Outstanding Rs {round(float(r['outstanding'])):,}"
         elif kind == "INSURANCE" and active and r["insurance"] != "COMPLETED":
             d = "Insurance " + r["insurance"].replace("_", " ").lower()
-        elif kind == "RTO" and active and r["rto"] != "REGISTERED":
-            d = "RTO " + r["rto"].replace("_", " ").lower()
+        elif kind == "RTO" and r["stage"] in RTO_OPEN and r["rto"] != "REGISTERED":
+            d = "RTO " + r["rto"].replace("_", " ").lower() + (" (bike already delivered)" if r["stage"] == S.DELIVERED else "")
         elif kind == "INVOICE" and active and r["stage"] != S.INVOICED:
             d = "Not invoiced yet"
         elif kind == "DELIVERY" and active:

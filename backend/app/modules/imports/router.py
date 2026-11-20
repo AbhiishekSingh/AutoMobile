@@ -12,7 +12,7 @@ router = APIRouter(prefix="/admin", tags=["admin-imports"])
 ALLOWED_EXTENSIONS = (".csv", ".xlsx", ".xls")
 
 
-@router.get("/branches", dependencies=[Depends(require_roles("ADMIN"))])
+@router.get("/branches", dependencies=[Depends(require_roles("ADMIN", "OWNER"))])
 def branches(db: Session = Depends(get_db)):
     rows = db.query(Branch).order_by(Branch.name).all()
     return [{"branch_id": b.branch_id, "name": b.name} for b in rows]

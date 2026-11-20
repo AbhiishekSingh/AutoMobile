@@ -2,6 +2,9 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './styles/style.css'
+import api from './lib/api'
+import { installFieldErrors } from './lib/fieldErrors'
+installFieldErrors(api)
 
 // A screen error must never leave a blank white page: show what happened and a way back.
 class ErrorBoundary extends React.Component {

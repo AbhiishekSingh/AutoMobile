@@ -33,6 +33,20 @@ def profiles(branch: AppUser = Depends(get_branch_login), db: Session = Depends(
                       "locked": bool(p.pin_locked_until and p.pin_locked_until > now)} for p in pbas]}
 
 
+@router.get("/summary")
+def summary(branch: AppUser = Depends(get_branch_login), db: Session = Depends(get_db)):
+    """This showroom's month at a glance, shown on the 'Who is working?' screen. Counts only - no customer names and no
+    money - because it is visible before anyone has entered a PIN."""
+    from app.modules.owner import service as owner
+    d = owner.dashboard(db, "month", now_ist().date(), branch.branch_id)
+    row = next((b for b in d["branches"] if b["branch_id"] == branch.branch_id), None)
+    if not row:
+        return {"label": d["label"], "has_data": False}
+    keys = ("leads", "bookings", "bookings_prev", "bookings_growth", "invoiced", "delivered", "target", "achievement_pct",
+            "ins_pending", "rto_pending", "invoice_pending", "delivery_pending", "cancelled", "test_rides", "conversion_pct")
+    return {"label": d["label"], "previous_label": d["previous_label"], "has_data": True, **{k: row[k] for k in keys}}
+
+
 @router.post("/select", response_model=TokenResponse)
 def select(body: SelectIn, branch: AppUser = Depends(get_branch_login), db: Session = Depends(get_db)):
     pba = db.get(AppUser, body.user_id)

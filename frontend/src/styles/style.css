@@ -14,9 +14,9 @@ a{color:var(--sky);}
 h2,h3,h4{font-family:'Segoe UI',sans-serif;}
 
 /* Shell */
-.app-shell{display:grid; grid-template-columns:250px 1fr; height:100vh; overflow:hidden; transition:grid-template-columns .18s ease;}
+.app-shell{display:grid; grid-template-columns:250px 1fr; grid-template-rows:minmax(0,1fr); height:100vh; height:100dvh; overflow:hidden; transition:grid-template-columns .18s ease;}
 .app-shell.sidebar-collapsed{grid-template-columns:76px 1fr;}
-.sidebar{background:var(--navy); color:#fff; padding:22px 16px; display:flex; flex-direction:column;
+.sidebar{min-height:0; background:var(--navy); color:#fff; padding:22px 16px; display:flex; flex-direction:column;
   height:100%; overflow:visible; position:relative; transition:width .18s ease; flex-shrink:0;}
 /* Plain arrow — no box/border, just the glyph, matching the reference UI. */
 .sidebar-toggle-arrow{background:none; border:none; appearance:none; -webkit-appearance:none; outline:none;
@@ -46,7 +46,7 @@ h2,h3,h4{font-family:'Segoe UI',sans-serif;}
 .sidebar-user-text{min-width:0; overflow:hidden;}
 .sidebar-user-name{font-size:13px; font-weight:700; color:#fff; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .sidebar-user-role{font-size:11px; color:#9FBBDE; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.main{background:var(--mist); min-width:0; height:100%; overflow-y:auto; display:flex; flex-direction:column;}
+.main{background:var(--mist); min-width:0; min-height:0; height:100%; overflow-y:auto; display:flex; flex-direction:column;}
 .topbar{background:#fff; border-bottom:1px solid var(--border); padding:14px 26px; display:flex; align-items:center; gap:18px; position:sticky; top:0; z-index:20; flex-shrink:0;}
 .page-title{font-size:19px; margin:0;}
 .page-sub{font-size:12.5px; color:var(--muted);}
@@ -342,3 +342,10 @@ textarea.input{resize:vertical;}
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
 .notif-item-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* ---- fields a message is about: red outline (set by lib/fieldErrors.js; also native browser "required" checks) ---- */
+[aria-invalid="true"], .field-invalid .input, .field-invalid select, .field-invalid textarea,
+.input:user-invalid, select:user-invalid, textarea:user-invalid {
+  border-color: #d93025 !important; box-shadow: 0 0 0 3px rgba(217,48,37,.14) !important; background-color: #fffafa;
+}
+.field-invalid > label, .field-invalid label { color: #b42318; }

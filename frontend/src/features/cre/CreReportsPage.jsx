@@ -3,24 +3,32 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../../lib/api'
 import Layout from '../../components/Layout'
+import Tabs, { Tab } from '../../components/Tabs'
 import { Empty, Loading, fmtDate, fmtDateTime } from '../../components/ui'
 
 const today = new Date()
 const iso = (d) => d.toISOString().slice(0, 10)
-const KPI = [['total', 'Leads', 'all'], ['pending', 'Follow-up pending', 'pending'], ['due_today', 'Due today', 'due_today'], ['overdue', 'Overdue follow-ups', 'overdue'],
-  ['tr_scheduled', 'Test rides scheduled', 'tr_scheduled'], ['tr_completed', 'Test rides completed', 'tr_completed'], ['showroom', 'Showroom visits', 'showroom'],
+const KPI = [['total', 'Leads', 'all'], ['pending', 'Pending', 'pending'], ['due_today', 'Due today', 'due_today'], ['overdue', 'Overdue', 'overdue'],
+  ['tr_scheduled', 'TR scheduled', 'tr_scheduled'], ['tr_completed', 'TR done', 'tr_completed'], ['showroom', 'Showroom', 'showroom'],
   ['booked', 'Bookings', 'booked'], ['lost', 'Lost leads', 'lost']]
 
 function Bars({ items, color = '#2563eb', unit }) {
   const max = Math.max(1, ...items.map((i) => i.count))
   if (!items.length) return <div className="muted-note">No data.</div>
   return items.map((i) => (
-    <div key={i.name || i.label || i.date} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0', fontSize: 13 }}>
-      <span style={{ width: 150, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.name || i.label || i.date}</span>
-      <div style={{ flex: 1, background: '#eef2ff', borderRadius: 4, height: 14 }}><div style={{ width: `${(i.count / max) * 100}%`, background: color, height: 14, borderRadius: 4 }} /></div>
-      <b style={{ width: 44, textAlign: 'right' }}>{i.count}{unit}</b>
+    <div key={i.name || i.label || i.date} style={{ display: 'grid', gridTemplateColumns: 'minmax(110px,190px) 1fr 52px', gap: 12, alignItems: 'center', margin: '9px 0', fontSize: 13.5 }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={i.name || i.label || i.date}>{i.name || i.label || i.date}</span>
+      <div style={{ background: '#eef1f6', borderRadius: 6, height: 12 }}><div style={{ width: `${(i.count / max) * 100}%`, minWidth: i.count ? 4 : 0, background: color, height: 12, borderRadius: 6 }} /></div>
+      <b style={{ textAlign: 'right' }}>{i.count}{unit}</b>
     </div>))
 }
+
+const Panel = ({ title, hint, children }) => (
+  <div style={{ background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, padding: '16px 20px' }}>
+    <div style={{ fontWeight: 700, fontSize: 14.5, color: '#1c2740' }}>{title}</div>
+    {hint && <div className="muted-note" style={{ margin: '2px 0 6px' }}>{hint}</div>}
+    <div style={{ marginTop: 6 }}>{children}</div>
+  </div>)
 
 function ReviewLog({ params }) {
   const [rows, setRows] = useState(null)
@@ -38,6 +46,7 @@ export default function CreReportsPage({ dashboard = false }) {
   const [f, setF] = useState({ date_from: iso(new Date(today.getFullYear(), today.getMonth(), 1)), date_to: iso(today), cre_id: '', branch_id: '', source: '', opportunity_status_id: '', disposition_id: '' })
   const [d, setD] = useState(null)
   const [drill, setDrill] = useState(null)
+  const [more, setMore] = useState(false)
   const params = Object.fromEntries(Object.entries(f).filter(([, v]) => v))
   const load = useCallback(() => api.get('/cre-reports', { params }).then((r) => setD(r.data)).catch(() => setD(false)), [JSON.stringify(params)])
   useEffect(() => { load() }, [load])
@@ -55,18 +64,37 @@ export default function CreReportsPage({ dashboard = false }) {
   const T = d.total, o = d.options, rv = d.review
   return (
     <Layout title={PAGE} sub="Workload comes from each CRE's branches; calls, quotations and review links are what the CRE personally did">
+      <style>{`
+        .cr-tabs .data-table th,.cr-tabs .data-table td{white-space:nowrap;padding:11px 14px}
+        .cr-tabs .table-wrap{overflow-x:auto}
+        .cr-tabs .data-table th:first-child,.cr-tabs .data-table td:first-child{position:sticky;left:0;z-index:1;background:#fff;box-shadow:1px 0 0 #eef0f4}
+        .cr-tabs .data-table th:first-child{background:#fafbfc}
+        .cr-tabs .tabs-body .card-pad{padding:18px 22px}
+      `}</style>
       <div className="card" style={{ marginBottom: 14 }}><div className="card-header" style={{ flexWrap: 'wrap', gap: 8 }}>
         <input className="input" type="date" style={{ maxWidth: 140 }} value={f.date_from} onChange={set('date_from')} /><input className="input" type="date" style={{ maxWidth: 140 }} value={f.date_to} onChange={set('date_to')} />
         <select className="input" style={{ maxWidth: 160 }} value={f.cre_id} onChange={set('cre_id')}><option value="">All CREs</option>{o.cres.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <select className="input" style={{ maxWidth: 150 }} value={f.branch_id} onChange={set('branch_id')}><option value="">All branches</option>{o.branches.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <button className="btn btn-outline btn-sm" onClick={() => setMore(!more)}>{more ? 'Fewer filters' : `More filters${f.source || f.opportunity_status_id || f.disposition_id ? ' ●' : ''}`}</button>
+        {more && (<>
         <select className="input" style={{ maxWidth: 140 }} value={f.source} onChange={set('source')}><option value="">All sources</option><option value="CSV">LeadSquared</option><option value="WALKIN">Walk-in</option></select>
         <select className="input" style={{ maxWidth: 170 }} value={f.opportunity_status_id} onChange={set('opportunity_status_id')}><option value="">Any opportunity status</option>{o.opportunity.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <select className="input" style={{ maxWidth: 160 }} value={f.disposition_id} onChange={set('disposition_id')}><option value="">Any disposition</option>{o.dispositions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        </>)}
         <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }} onClick={exportXlsx}>Export Excel</button></div></div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-        {KPI.map(([k, l, kind]) => <div key={k} className="card" style={{ padding: 12, cursor: 'pointer' }} onClick={() => open(kind)}><div className="muted-note">{l}</div><div style={{ fontSize: 24, fontWeight: 700 }}>{T[k]}</div></div>)}
-        <div className="card" style={{ padding: 12 }}><div className="muted-note">Conversion</div><div style={{ fontSize: 24, fontWeight: 700 }}>{T.total ? Math.round((T.booked * 100) / T.total) : 0}%</div></div>
+      <div className="card" style={{ marginBottom: 14, overflowX: 'auto' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10,minmax(104px,1fr))' }}>
+          {KPI.map(([k, l, kind], i) => (
+            <div key={k} title="Click to see these leads" onClick={() => open(kind)} style={{ padding: '12px 14px', cursor: 'pointer', borderLeft: i ? '1px solid #eef0f4' : 0 }}>
+              <div className="muted-note" style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap' }}>{l}</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: (k === 'overdue' && T[k]) ? '#b42318' : '#1c2740' }}>{T[k]}</div>
+            </div>))}
+          <div style={{ padding: '12px 14px', borderLeft: '1px solid #eef0f4', background: '#f6f9ff' }}>
+            <div className="muted-note" style={{ fontSize: 11.5, fontWeight: 600 }}>Conversion</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#2459c4' }}>{T.total ? Math.round((T.booked * 100) / T.total) : 0}%</div>
+          </div>
+        </div>
       </div>
 
       {drill && <div className="card" style={{ marginBottom: 14 }}><div className="card-header"><h3>{drill.title} ({drill.rows.length})</h3><button className="btn btn-outline btn-sm" onClick={() => setDrill(null)}>Close</button></div>
@@ -74,6 +102,9 @@ export default function CreReportsPage({ dashboard = false }) {
           <tbody>{drill.rows.map((r) => <tr key={r.lead_id}><td><Link to={`/leads/${r.lead_id}`}>{r.enquiry_no}</Link></td><td>{r.customer}</td><td>{r.mobile}</td><td>{r.branch}</td><td>{r.pba || '—'}</td><td>{r.stage}</td><td>{r.opportunity || '—'}</td><td>{r.disposition || '—'}</td><td>{r.next_followup_at ? fmtDateTime(r.next_followup_at) : '—'}</td></tr>)}</tbody></table>
           {!drill.rows.length && <Empty>Nothing here.</Empty>}</div></div>}
 
+      <div className="cr-tabs">
+      <Tabs tabs={[{ key: 'perf', label: 'CRE performance', count: d.rows.length }, { key: 'pipe', label: 'Pipeline' }, { key: 'fu', label: 'Follow-ups & test rides' }, { key: 'rev', label: 'Google reviews' }]}>
+        <Tab k="perf">
       <div className="card" style={{ marginBottom: 14 }}><div className="card-header"><h3>CRE-wise performance</h3></div>
         <div className="table-wrap"><table className="data-table"><thead><tr><th>CRE</th><th>Branches</th><th>Leads</th><th>Calls logged</th><th>Customers contacted</th><th>Pending</th><th>Overdue</th><th>Follow-up done %</th>
           <th>Quotations</th><th>TR sched.</th><th>TR done</th><th>Showroom</th><th>Bookings</th><th>Conv. %</th><th>Lost</th><th>Review links</th><th>Final reviews done</th><th>Final reviews pending</th></tr></thead>
@@ -83,22 +114,48 @@ export default function CreReportsPage({ dashboard = false }) {
             <td>{r.followup_completion_pct}%</td><td>{r.quotations_created}</td><td>{r.tr_scheduled}</td><td>{r.tr_completed}</td><td>{r.showroom}</td><td>{r.booked}</td><td>{r.conversion_pct}%</td><td>{r.lost}</td><td>{r.review_sent}</td><td>{r.final_done}</td><td>{r.final_pending}</td></tr>)}</tbody></table>
           {!d.rows.length && <Empty>No CREs match.</Empty>}</div></div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 14, marginBottom: 14 }}>
-        <div className="card card-pad"><h3 style={{ marginTop: 0 }}>Lead conversion funnel</h3><Bars items={d.funnel} />
-          <div className="muted-note" style={{ marginTop: 6 }}>Qualified = contacted and showing interest (showroom / test-ride interest, a test ride, a quotation or a booking).</div></div>
-        <div className="card card-pad"><h3 style={{ marginTop: 0 }}>Opportunity status</h3><Bars items={d.opportunity} color="#0ea5e9" /></div>
-        <div className="card card-pad"><h3 style={{ marginTop: 0 }}>Disposition</h3><Bars items={d.disposition} color="#8b5cf6" /></div>
-        <div className="card card-pad"><h3 style={{ marginTop: 0 }}>Follow-up analytics</h3>
-          <Bars items={[{ name: 'Completed (calls connected)', count: d.rows.reduce((a, r) => a + r.calls_connected, 0) }, { name: 'Pending', count: T.pending }, { name: 'Overdue', count: T.overdue }]} color="#16a34a" />
-          <h4>Calls logged per day</h4><Bars items={d.trend.slice(-14)} color="#f59e0b" />
-          <h4>Test rides</h4><Bars items={[{ name: 'Scheduled', count: T.tr_scheduled }, { name: 'Completed', count: T.tr_completed }, { name: 'Rescheduled', count: T.tr_rescheduled }]} color="#ef4444" /></div>
-      </div>
-
+        </Tab>
+        <Tab k="pipe">
+          <div style={{ padding: 20, display: 'grid', gap: 16 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 10 }}>Lead conversion funnel</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10 }}>
+                {d.funnel.map((i, n) => { const first = d.funnel[0]?.count || 0; return (
+                  <div key={i.name || i.label} style={{ border: '1px solid #edf0f4', borderRadius: 12, padding: '10px 12px' }}>
+                    <div className="muted-note" style={{ fontSize: 11.5, fontWeight: 600 }}>{i.name || i.label}</div>
+                    <div style={{ fontSize: 22, fontWeight: 800 }}>{i.count}</div>
+                    <div style={{ height: 5, borderRadius: 3, background: '#eef1f6', margin: '5px 0 4px' }}><div style={{ height: 5, borderRadius: 3, background: '#2563eb', width: `${first ? Math.min(100, i.count * 100 / first) : 0}%`, minWidth: i.count ? 3 : 0 }} /></div>
+                    <div className="muted-note" style={{ fontSize: 11 }}>{n === 0 ? 'all leads' : `${first ? Math.round(i.count * 100 / first) : 0}% of leads`}</div>
+                  </div>) })}
+              </div>
+              <div className="muted-note" style={{ marginTop: 8 }}>Qualified = contacted and showing interest (showroom / test-ride interest, a test ride, a quotation or a booking).</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(340px,1fr))', gap: 16 }}>
+              <Panel title="Opportunity status"><Bars items={d.opportunity} color="#0ea5e9" /></Panel>
+              <Panel title="Disposition"><Bars items={d.disposition} color="#8b5cf6" /></Panel>
+            </div>
+          </div>
+        </Tab>
+        <Tab k="fu">
+          <div style={{ padding: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 16, alignItems: 'start' }}>
+            <Panel title="Follow-up analytics">
+              <Bars items={[{ name: 'Completed (calls connected)', count: d.rows.reduce((a, r) => a + r.calls_connected, 0) }, { name: 'Pending', count: T.pending }, { name: 'Overdue', count: T.overdue }]} color="#16a34a" />
+            </Panel>
+            <Panel title="Test rides">
+              <Bars items={[{ name: 'Scheduled', count: T.tr_scheduled }, { name: 'Completed', count: T.tr_completed }, { name: 'Rescheduled', count: T.tr_rescheduled }]} color="#ef4444" />
+            </Panel>
+            <Panel title="Calls logged per day" hint="Last 14 days"><Bars items={d.trend.slice(-14)} color="#f59e0b" /></Panel>
+          </div>
+        </Tab>
+        <Tab k="rev">
       <div className="card card-pad"><h3 style={{ marginTop: 0 }}>Google review links sent</h3>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 8 }}><div><span className="muted-note">Total</span> <b>{rv.total}</b></div><div><span className="muted-note">Delivered / read</span> <b>{rv.delivered}</b></div><div><span className="muted-note">Failed</span> <b>{rv.failed}</b></div></div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 14 }}>
           <div><h4>CRE-wise</h4><Bars items={rv.by_cre} color="#14b8a6" /></div><div><h4>Branch-wise</h4><Bars items={rv.by_branch} color="#14b8a6" /></div><div><h4>Date-wise</h4><Bars items={rv.by_day.slice(-14)} color="#14b8a6" /></div></div></div>
       <ReviewLog params={params} />
+        </Tab>
+      </Tabs>
+      </div>
     </Layout>
   )
 }

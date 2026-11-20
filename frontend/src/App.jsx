@@ -20,6 +20,7 @@ import StockPage from './features/stock/StockPage'
 import OwnerDashboardPage from './features/owner/OwnerDashboardPage'
 import OwnerKpiPage from './features/owner/OwnerKpiPage'
 import TargetsPage from './features/targets/TargetsPage'
+import SettingsPage from './features/settings/SettingsPage'
 import WhatsAppSettingsPage from './features/whatsapp/WhatsAppSettingsPage'
 import UsersPage from './features/admin/UsersPage'
 import BranchesPage from './features/admin/BranchesPage'
@@ -90,6 +91,7 @@ export default function App() {
           <Route path="/rto" element={<ProtectedRoute roles={['RTO']}><WorkQueuePage title="RTO — Registrations" /></ProtectedRoute>} />
           <Route path="/handoff/:leadId" element={<ProtectedRoute roles={['OWNER', 'RTO', 'GM', 'ADMIN']}><HandoffPage /></ProtectedRoute>} />
           <Route path="/targets" element={<ProtectedRoute roles={['OWNER', 'GM', 'ADMIN', 'PBA', 'CRE']}><TargetsPage /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/whatsapp-settings" element={<ProtectedRoute roles={['OWNER', 'GM', 'ADMIN']}><WhatsAppSettingsPage /></ProtectedRoute>} />
           <Route path="/stock" element={<ProtectedRoute roles={['OWNER', 'GM', 'ADMIN']}><StockPage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute roles={['ADMIN']}><UsersPage /></ProtectedRoute>} />

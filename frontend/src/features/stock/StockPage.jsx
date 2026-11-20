@@ -11,6 +11,10 @@ const TYPE = { RECEIVE: 'Received at warehouse', ALLOCATE: 'Allocated to showroo
 const err = (e, d) => e.response?.data?.detail || d
 const num = (v) => (v === '' || v === null ? null : Number(v))
 
+// Defined outside the page: a component created inside it is a new component on every keystroke, which remounts
+// the input and drops focus after each character.
+const Field = ({ label, children }) => (<div className="field" style={{ marginBottom: 0 }}><label>{label}</label>{children}</div>)
+
 export default function StockPage() {
   const { user } = useAuth()
   const [d, setD] = useState(null)
@@ -21,6 +25,9 @@ export default function StockPage() {
   const [mv, setMv] = useState({ move_type: 'RECEIVE', item_id: '', from_branch_id: '', to_branch_id: '', qty: '', counted_qty: '', reference: '', received_by: '', note: '' })
   const [ni, setNi] = useState({ kind: 'HELMET', name: '', variant: '', color: '' })
   const [busy, setBusy] = useState(false)
+  const [bk, setBk] = useState({ file: null, mode: 'add' })   // bulk upload form
+  const [bres, setBres] = useState(null)                       // result of the last check / apply
+  const [bmsg, setBmsg] = useState(null)
 
   const load = () => api.get('/stock/summary').then((r) => setD(r.data)).catch(() => setD(false))
   const loadHist = () => api.get('/stock/movements', { params: Object.fromEntries(Object.entries(hf).filter(([, v]) => v)) })
@@ -53,9 +60,26 @@ export default function StockPage() {
     try { await api.post('/stock/items', ni); setMsg({ ok: true, text: 'Item added.' }); setNi({ ...ni, name: '', variant: '', color: '' }); load() }
     catch (e) { setMsg({ ok: false, text: err(e, 'Could not add.') }) } finally { setBusy(false) }
   }
+  async function download(path, name, params) {
+    try {
+      const r = await api.get(path, { params, responseType: 'blob' })
+      const a = document.createElement('a'); a.href = URL.createObjectURL(r.data); a.download = name; a.click()
+    } catch (e) { setBmsg({ ok: false, text: 'Could not download the file.' }) }
+  }
+  async function runBulk(apply) {
+    if (!bk.file) { setBmsg({ ok: false, text: 'Choose a file first.' }); return }
+    setBusy(true); setBmsg(null)
+    try {
+      const fd = new FormData(); fd.append('file', bk.file); fd.append('mode', bk.mode); fd.append('apply', apply ? 'true' : 'false')
+      const r = await api.post('/stock/bulk', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setBres(r.data)
+      if (r.data.applied) { setBmsg({ ok: true, text: 'Saved. The stock register is updated.' }); setBk({ ...bk, file: null }); load() }
+      else if (r.data.errors) setBmsg({ ok: false, text: `${r.data.errors} row${r.data.errors === 1 ? ' has' : 's have'} a problem. Nothing was saved. Fix the file and check it again.` })
+      else setBmsg({ ok: true, text: 'The file is fine. Nothing is saved yet. Press "Save to stock" to apply it.' })
+    } catch (e) { setBres(null); setBmsg({ ok: false, text: err(e, 'Could not read the file.') }) } finally { setBusy(false) }
+  }
   const Tab = ({ id, children }) => (<button className={'btn btn-sm ' + (tab === id ? 'btn-primary' : 'btn-outline')} onClick={() => { setTab(id); setMsg(null) }}>{children}</button>)
   const note = msg && <div className="hint" style={{ margin: '10px 0', ...(msg.ok ? {} : { background: 'var(--red-light)', color: '#7a2318' }) }}>{msg.text}</div>
-  const Field = ({ label, children }) => (<div className="field" style={{ marginBottom: 0 }}><label>{label}</label>{children}</div>)
   const sel = (v, f, opts, ph) => (<select className="input" value={v} onChange={(e) => f(e.target.value)}><option value="">{ph}</option>{opts.map(([val, lab]) => <option key={val} value={val}>{lab}</option>)}</select>)
   const brOpts = d.branches.map((b) => [b.id, b.name])
   const itOpts = itemsOf.map((i) => [i.id, `${KIND[i.kind].replace(/s$/, '')} – ${i.label}`])
@@ -84,6 +108,7 @@ export default function StockPage() {
         <Tab id="history">Movement history</Tab>
         <Tab id="discrepancy">Discrepancy report</Tab>
         {d.can_manage && <Tab id="items">Items</Tab>}
+        {d.can_manage && <Tab id="bulk">Bulk upload</Tab>}
       </div>
       {note}
 
@@ -145,6 +170,59 @@ export default function StockPage() {
           {ni.kind !== 'PARKING_COVER' && <Field label="Color"><input className="input" value={ni.color} onChange={(e) => setNi({ ...ni, color: e.target.value })} /></Field>}
         </div>
         <div style={{ marginTop: 12 }}><button className="btn btn-primary" disabled={busy || !ni.name.trim()} onClick={addItem}>Add item</button></div>
+      </div></div>)}
+
+      {tab === 'bulk' && d.can_manage && (<div className="card"><div className="card-pad">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 18 }}>
+          <div>
+            <h4 style={{ margin: '0 0 8px' }}>1. Get the file format</h4>
+            <div className="muted-note" style={{ marginBottom: 8 }}>One row per item per place. Columns: Type, Name, Variant, Color, Location, Quantity, Reference, Note. Location is <b>Warehouse</b> or a showroom name.</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-outline btn-sm" onClick={() => download('/stock/bulk/template', 'stock-upload-template.xlsx', { format: 'xlsx' })}>Template (Excel)</button>
+              <button className="btn btn-outline btn-sm" onClick={() => download('/stock/bulk/template', 'stock-upload-template.csv', { format: 'csv' })}>Template (CSV)</button>
+              <button className="btn btn-outline btn-sm" onClick={() => download('/stock/bulk/export', 'current-stock.xlsx')}>Download current stock</button>
+            </div>
+            <div className="muted-note" style={{ marginTop: 8 }}>To update many quantities: download current stock, change the Quantity column, upload it with “Set stock”.</div>
+          </div>
+          <div>
+            <h4 style={{ margin: '0 0 8px' }}>2. What should the file do?</h4>
+            {[['add', 'Add stock', 'Quantity is added to the place (received at the warehouse or showroom). New items are created.'],
+              ['set', 'Set stock to these numbers', 'The place is set to Quantity. Differences are recorded as a count, so they show in the Discrepancy report.'],
+              ['items', 'Add items only', 'Creates the items. Quantity and Location are ignored.']].map(([v, t, about]) => (
+              <label key={v} style={{ display: 'flex', gap: 10, padding: '8px 10px', border: `1px solid ${bk.mode === v ? '#2f80ed' : '#e5e9f0'}`, borderRadius: 10, marginBottom: 8, cursor: 'pointer', background: bk.mode === v ? '#f3f8ff' : '#fff' }}>
+                <input type="radio" name="bulkmode" checked={bk.mode === v} onChange={() => { setBk({ ...bk, mode: v }); setBres(null); setBmsg(null) }} />
+                <span><b>{t}</b><div className="muted-note">{about}</div></span></label>))}
+          </div>
+          <div>
+            <h4 style={{ margin: '0 0 8px' }}>3. Choose the file and check it</h4>
+            <input className="input" type="file" accept=".xlsx,.csv" onChange={(e) => { setBk({ ...bk, file: e.target.files?.[0] || null }); setBres(null); setBmsg(null) }} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+              <button className="btn btn-outline" disabled={busy || !bk.file} onClick={() => runBulk(false)}>Check file</button>
+              <button className="btn btn-primary" disabled={busy || !bk.file || !bres || bres.errors > 0 || bres.applied} onClick={() => runBulk(true)}>Save to stock</button>
+            </div>
+            {bmsg && <div style={{ marginTop: 10, padding: '9px 12px', borderRadius: 8, fontWeight: 600, fontSize: 13.5, background: bmsg.ok ? '#e3f6ec' : 'var(--red-light)', color: bmsg.ok ? '#0f6b3a' : '#7a2318', border: `1px solid ${bmsg.ok ? '#a8e0c1' : '#f0b4ab'}` }}>{bmsg.ok ? '✓ ' : '✕ '}{bmsg.text}</div>}
+            <div className="muted-note" style={{ marginTop: 8 }}>The whole file is checked first. If any row has a problem, nothing is saved. Excel (.xlsx) and CSV are supported, up to 2000 rows.</div>
+          </div>
+        </div>
+
+        {bres && (<div style={{ marginTop: 20 }}>
+          <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span><b>{bres.rows}</b> rows</span>
+            <span><b>{bres.counts.items_new}</b> new items</span>
+            <span><b>{bres.counts.items_existing}</b> items already there</span>
+            {bk.mode !== 'items' && <span><b>{bres.counts.stock_changed}</b> stock changes</span>}
+            {bres.counts.unchanged > 0 && <span><b>{bres.counts.unchanged}</b> already at that number</span>}
+            <span style={{ color: bres.errors ? '#b42318' : '#0f6b3a' }}><b>{bres.errors}</b> problem{bres.errors === 1 ? '' : 's'}</span>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table"><thead><tr><th>Row</th><th>Item</th><th>Place</th><th>What happens</th><th>Result</th></tr></thead>
+              <tbody>{[...bres.results].sort((a, b) => (a.status === 'error' ? 0 : 1) - (b.status === 'error' ? 0 : 1)).slice(0, 300).map((r) => (
+                <tr key={r.line} style={r.status === 'error' ? { background: 'var(--red-light)' } : undefined}>
+                  <td>{r.line}</td><td>{r.item}</td><td>{r.place || '—'}</td><td>{r.action || '—'}</td>
+                  <td style={{ fontWeight: 600, color: r.status === 'error' ? '#7a2318' : '#0f6b3a' }}>{r.status === 'error' ? `✕ ${r.message}` : '✓ OK'}</td></tr>))}</tbody></table>
+            {bres.results.length > 300 && <div className="muted-note" style={{ padding: 10 }}>Showing the first 300 rows (problems first).</div>}
+          </div>
+        </div>)}
       </div></div>)}
     </Layout>
   )

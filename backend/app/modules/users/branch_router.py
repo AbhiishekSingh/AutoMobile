@@ -7,7 +7,7 @@ from app.core.database import get_db
 from app.core.deps import require_roles
 from app.modules.users.models import AppUser, Branch, Role
 
-router = APIRouter(prefix="/admin/branch-setup", tags=["branches"], dependencies=[Depends(require_roles("ADMIN"))])
+router = APIRouter(prefix="/admin/branch-setup", tags=["branches"], dependencies=[Depends(require_roles("ADMIN", "OWNER"))])
 
 
 class BranchIn(BaseModel):
@@ -39,6 +39,35 @@ def _out(db, b: Branch):
             "contact_no": b.contact_no, "whatsapp_number": b.whatsapp_number, "is_active": b.is_active,
             "branch_login": login.login_id if login else None,
             "pbas": [{"user_id": p.user_id, "full_name": p.full_name, "login_enabled": p.login_enabled, "has_pin": p.has_pin} for p in pbas]}
+
+
+DEPARTMENTS = [
+    ("PBA", "Sales (PBA)", "Walk-ins, enquiries, quotations, bookings and payments"),
+    ("CRE", "Customer relations (CRE)", "Follow-ups, LeadSquare leads, final reviews"),
+    ("BRANCH", "Branch logins", "Shared login of a showroom; PBAs pick their name under it"),
+    ("INSURANCE", "Insurance", "Policies, nominee details and policy PDFs"),
+    ("RTO", "RTO", "Registration and RTO documents"),
+    ("GM", "General managers", "Dashboards, accounts and approvals oversight"),
+    ("OWNER", "Owner", "Approvals, KPIs, accounts and settings"),
+    ("ADMIN", "Admin", "Users, branches, imports and logs"),
+]
+
+
+@router.get("/departments")
+def departments(db: Session = Depends(get_db)):
+    """Departments are the roles: who is in each one, and in which branch."""
+    names = {b.branch_id: b.name for b in db.query(Branch).all()}
+    users = db.query(AppUser).order_by(AppUser.full_name).all()
+    out = []
+    for role, label, about in DEPARTMENTS:
+        mem = [u for u in users if u.role.value == role]
+        out.append({"role": role, "label": label, "about": about,
+                    "active": sum(1 for u in mem if u.is_active), "total": len(mem),
+                    "members": [{"user_id": u.user_id, "full_name": u.full_name, "login_id": u.login_id,
+                                 "is_active": bool(u.is_active), "login_enabled": u.login_enabled,
+                                 "branches": [names.get(i, str(i)) for i in (u.branch_ids if role == "CRE" else ([u.branch_id] if u.branch_id else []))]}
+                                for u in mem]})
+    return out
 
 
 @router.get("")

@@ -48,6 +48,11 @@ export function AuthProvider({ children }) {
     try { const { data } = await api.post('/branch/lock'); return store(data) } catch (_) { logout() }
   }
 
+  async function refreshUser() {
+    const { data } = await api.get('/auth/me')
+    localStorage.setItem('user', JSON.stringify(data)); setUser(data); return data
+  }
+
   function logout() {
     localStorage.clear()
     setUser(null)
@@ -65,7 +70,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, selectPba, switchPba }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, selectPba, switchPba, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )
