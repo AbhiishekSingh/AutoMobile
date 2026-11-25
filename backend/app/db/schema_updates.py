@@ -81,13 +81,13 @@ def apply_schema_updates(engine) -> None:
     # imported here so every model is registered before create_all runs
     from app.modules.documents.models import CustomerDocument
     from app.modules.leads.models import CustomerDetailHistory, LeadModelInterest, StageHistory
-    from app.modules.handoffs.models import (AtwApproval, DeliveryRecord, InsuranceCase,
+    from app.modules.handoffs.models import (AtwApproval, DeliveryRecord, InsuranceCase, InsurancePolicyHistory,
                                              InvoiceDetail, OwnerApproval, RtoCase)
     from app.modules.payments.models import Booking, Payment
     from app.modules.stock.models import StockItem, StockMovement
     from app.modules.targets.models import SalesTarget
     from app.modules.whatsapp.models import DealerLink, WhatsappMessage
-    from app.modules.users.models import UserBranch
+    from app.modules.users.models import Department, UserBranch
     from app.modules.accounts.models import AccountsPermission, PaymentRecon, Refund, VendorBill
     from app.modules.final_review.models import FinalReview
     from app.modules.rto_docs.models import RtoDocProfile
@@ -101,8 +101,20 @@ def apply_schema_updates(engine) -> None:
         conn.execute(text("ALTER TABLE insurance_case ADD COLUMN IF NOT EXISTS docs_verified_at TIMESTAMP"))
         conn.execute(text("ALTER TABLE insurance_case ADD COLUMN IF NOT EXISTS docs_verified_by_user_id INTEGER"))
         conn.execute(text("ALTER TABLE invoice_detail ADD COLUMN IF NOT EXISTS choice_number VARCHAR"))
+        conn.execute(text("ALTER TABLE insurance_case ADD COLUMN IF NOT EXISTS addons VARCHAR"))
+        conn.execute(text("ALTER TABLE insurance_case ADD COLUMN IF NOT EXISTS customer_type VARCHAR"))
+        for _c, _t in (("policy_status", "VARCHAR NOT NULL DEFAULT 'ACTIVE'"), ("cancel_date", "DATE"), ("cancel_remark", "TEXT"),
+                       ("refund_amount", "NUMERIC(12,2)"), ("refund_expected_date", "DATE"), ("cancelled_at", "TIMESTAMP"),
+                       ("cancelled_by_user_id", "INTEGER")):
+            conn.execute(text(f"ALTER TABLE insurance_case ADD COLUMN IF NOT EXISTS {_c} {_t}"))
+        # the old combined policy types are split into customer type + insurance company
+        conn.execute(text("UPDATE insurance_case SET customer_type='MBO', policy_type='ACKO' WHERE policy_type='MBO_ACKO'"))
+        conn.execute(text("UPDATE insurance_case SET customer_type='CUSTOMER', policy_type='BAGIC' WHERE policy_type='CUSTOMER_BAGIC'"))
+        conn.execute(text("ALTER TABLE invoice_detail ADD COLUMN IF NOT EXISTS nominee_age INTEGER"))
+        conn.execute(text("ALTER TABLE invoice_detail ADD COLUMN IF NOT EXISTS nominee_relation_other VARCHAR"))
         conn.execute(text("ALTER TABLE lead_followup ADD COLUMN IF NOT EXISTS customer_feedback TEXT"))
         conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS phone VARCHAR"))
+        conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS department_id INTEGER"))
         conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS login_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
         conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS pin_hash VARCHAR"))
         conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS ls_email VARCHAR"))
@@ -114,14 +126,14 @@ def apply_schema_updates(engine) -> None:
                          ("callback_remind_at", "TIMESTAMP"), ("callback_notified", "BOOLEAN DEFAULT FALSE")):
             conn.execute(text(f"ALTER TABLE lead ADD COLUMN IF NOT EXISTS {col} {typ}"))
         # checkfirst=True (the default): does nothing if the table exists
-        Base.metadata.create_all(bind=conn, tables=[UserBranch.__table__, PaymentRecon.__table__, AccountsPermission.__table__, VendorBill.__table__, Refund.__table__, FinalReview.__table__, RtoDocProfile.__table__, SyncFailure.__table__, OwnerStageApproval.__table__,
+        Base.metadata.create_all(bind=conn, tables=[Department.__table__, UserBranch.__table__, PaymentRecon.__table__, AccountsPermission.__table__, VendorBill.__table__, Refund.__table__, FinalReview.__table__, RtoDocProfile.__table__, SyncFailure.__table__, OwnerStageApproval.__table__,
                                                     CustomerDetailHistory.__table__,
                                                     CustomerDocument.__table__,
                                                     StageHistory.__table__,
                                                     LeadModelInterest.__table__,
                                                     Booking.__table__,
                                                     Payment.__table__,
-                                                    InsuranceCase.__table__, RtoCase.__table__,
+                                                    InsuranceCase.__table__, InsurancePolicyHistory.__table__, RtoCase.__table__,
                                                     OwnerApproval.__table__, AtwApproval.__table__,
                                                     InvoiceDetail.__table__, DeliveryRecord.__table__,
                                                     StockItem.__table__, StockMovement.__table__,
@@ -137,3 +149,7 @@ def apply_schema_updates(engine) -> None:
             conn.execute(text(f"ALTER TABLE quotation ADD COLUMN IF NOT EXISTS {col} {typ}"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_payment_agree_token ON payment (agree_token)"))
     _create_indexes(engine)
+    from sqlalchemy.orm import Session
+    from app.modules.users.departments import ensure_defaults
+    with Session(engine) as _db:
+        ensure_defaults(_db)

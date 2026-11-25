@@ -35,6 +35,20 @@ class Branch(Base):
     users = relationship("AppUser", back_populates="branch")
 
 
+class Department(Base):
+    """A team the dealership manages (Sales, Customer Relations, Accounts...). A user has a role (what they may do) and a
+    department (which team they belong to); the two are separate so a team can hold more than one role, or a role that
+    has no screen of its own (Accounts)."""
+    __tablename__ = "department"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+    description = Column(String)
+    head_user_id = Column(Integer)          # the department head (a user); plain id so users and departments don't point at each other
+    sort_order = Column(Integer, default=100, nullable=False, server_default="100")
+    is_active = Column(Boolean, default=True, nullable=False, server_default="true")
+    created_at = Column(DateTime, default=now_ist)
+
+
 class AppUser(Base):
     __tablename__ = "app_user"
     user_id = Column(Integer, primary_key=True, index=True)
@@ -54,17 +68,23 @@ class AppUser(Base):
     pin_locked_until = Column(DateTime)
     role = Column(Enum(Role), nullable=False)
     branch_id = Column(Integer, ForeignKey("branch.branch_id"))
+    department_id = Column(Integer, ForeignKey("department.id"))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=now_ist)
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)
 
     branch = relationship("Branch", back_populates="users")
+    department = relationship("Department", lazy="joined")
     # CRE only: the 1-2 branches this CRE covers (set by Admin on the Users
     # page). Other roles have none and use `branch_id` above.
     branch_links = relationship("UserBranch", cascade="all, delete-orphan",
                                 lazy="selectin", order_by="UserBranch.branch_id")
 
     via_branch = False      # set per request when this PBA is working under the branch login
+
+    @property
+    def department_name(self):
+        return self.department.name if self.department else None
 
     @property
     def has_pin(self) -> bool:

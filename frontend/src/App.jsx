@@ -1,3 +1,4 @@
+import PbaPipelinePage from './features/handoffs/PbaPipelinePage'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Suspense, lazy } from 'react'
 import { AuthProvider, useAuth, ROLE_HOME } from './lib/auth'
@@ -8,6 +9,7 @@ import LoginPage from './features/auth/LoginPage'
 import RoleHome from './features/home/RoleHome'
 import InsuranceDashboardPage from './features/insurance/InsuranceDashboardPage'
 import CreReportsPage from './features/cre/CreReportsPage'
+import CreTestRidesPage from './features/cre/CreTestRidesPage'
 import FinalReviewsPage from './features/cre/FinalReviewsPage'
 import AccountsPage from './features/accounts/AccountsPage'
 import InsuranceCasePage from './features/insurance/InsuranceCasePage'
@@ -84,10 +86,13 @@ export default function App() {
           <Route path="/owner/other" element={<ProtectedRoute roles={['OWNER']}><WorkQueuePage title="Owner — Other requests (ATW / special)" /></ProtectedRoute>} />
           <Route path="/gm" element={<ProtectedRoute roles={['GM']}><OwnerDashboardPage gm /></ProtectedRoute>} />
           <Route path="/cre-reports" element={<ProtectedRoute roles={['OWNER', 'GM', 'ADMIN', 'CRE']}><CreReportsPage /></ProtectedRoute>} />
+          <Route path="/cre/test-rides" element={<ProtectedRoute roles={['CRE', 'OWNER', 'GM', 'ADMIN']}><CreTestRidesPage /></ProtectedRoute>} />
           <Route path="/final-reviews" element={<ProtectedRoute roles={['CRE', 'OWNER', 'GM', 'ADMIN']}><FinalReviewsPage /></ProtectedRoute>} />
           <Route path="/accounts" element={<ProtectedRoute roles={['OWNER', 'GM', 'ADMIN']}><AccountsPage /></ProtectedRoute>} />
           <Route path="/insurance" element={<ProtectedRoute roles={['INSURANCE', 'ADMIN', 'OWNER', 'GM', 'CRE']}><InsuranceDashboardPage /></ProtectedRoute>} />
           <Route path="/insurance/:leadId" element={<ProtectedRoute roles={['INSURANCE', 'ADMIN', 'OWNER', 'GM', 'CRE']}><InsuranceCasePage /></ProtectedRoute>} />
+          <Route path="/invoices" element={<ProtectedRoute roles={['PBA']}><PbaPipelinePage mode="invoice" /></ProtectedRoute>} />
+          <Route path="/rto-status" element={<ProtectedRoute roles={['PBA']}><PbaPipelinePage mode="rto" /></ProtectedRoute>} />
           <Route path="/rto" element={<ProtectedRoute roles={['RTO']}><WorkQueuePage title="RTO — Registrations" /></ProtectedRoute>} />
           <Route path="/handoff/:leadId" element={<ProtectedRoute roles={['OWNER', 'RTO', 'GM', 'ADMIN']}><HandoffPage /></ProtectedRoute>} />
           <Route path="/targets" element={<ProtectedRoute roles={['OWNER', 'GM', 'ADMIN', 'PBA', 'CRE']}><TargetsPage /></ProtectedRoute>} />

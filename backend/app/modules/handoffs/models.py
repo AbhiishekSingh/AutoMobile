@@ -18,12 +18,14 @@ class InsuranceCase(Base):
     id = Column(Integer, primary_key=True)
     lead_id = Column(Integer, ForeignKey("lead.lead_id"), unique=True, nullable=False)
     status = Column(String, nullable=False, default="PENDING")   # PENDING / IN_PROGRESS / COMPLETED
-    policy_type = Column(String)            # MBO_ACKO or CUSTOMER_BAGIC
+    customer_type = Column(String)          # MBO or CUSTOMER (the PBA asks the customer)
+    policy_type = Column(String)            # the insurance company: ACKO / BAGIC / NATIONAL / POLICYBAZAR
     nominee_name = Column(String)
     nominee_age = Column(Integer)
     nominee_relation = Column(String)
     nominee_relation_other = Column(String)
     hypothecation = Column(String)          # HP: bank / financer name, empty = none
+    addons = Column(String)                 # insurance add-ons the customer wants: comma-separated keys (service.ADDONS), filled by the PBA
     policy_no = Column(String, unique=True)
     policy_start = Column(Date)
     policy_expiry = Column(Date)
@@ -35,12 +37,52 @@ class InsuranceCase(Base):
     docs_verified_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     completed_at = Column(DateTime)
     completed_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
+    # after the policy is created it is ACTIVE, or CANCELLED with the reason and the refund details
+    policy_status = Column(String, nullable=False, default="ACTIVE", server_default="ACTIVE")
+    cancel_date = Column(Date)
+    cancel_remark = Column(Text)
+    refund_amount = Column(Numeric(12, 2))
+    refund_expected_date = Column(Date)
+    cancelled_at = Column(DateTime)
+    cancelled_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     updated_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
     created_at = Column(DateTime, default=now_ist, nullable=False)
     updated_at = Column(DateTime, default=now_ist, onupdate=now_ist)
 
+    cancelled_by = relationship("AppUser", foreign_keys=[cancelled_by_user_id])
     docs_verified_by = relationship("AppUser", foreign_keys=[docs_verified_by_user_id])
     completed_by = relationship("AppUser", foreign_keys=[completed_by_user_id])
+
+
+class InsurancePolicyHistory(Base):
+    """A cancelled policy that was replaced by a new one. The booking keeps one current policy (on InsuranceCase);
+    when the Insurance team adds a new policy after a cancellation, the old policy moves here with its cancellation
+    and refund details so nothing is lost."""
+    __tablename__ = "insurance_policy_history"
+    id = Column(Integer, primary_key=True)
+    lead_id = Column(Integer, ForeignKey("lead.lead_id"), nullable=False, index=True)
+    case_id = Column(Integer, ForeignKey("insurance_case.id"), nullable=False)
+    customer_type = Column(String)
+    policy_type = Column(String)
+    policy_no = Column(String)
+    policy_start = Column(Date)
+    policy_expiry = Column(Date)
+    premium = Column(Numeric(12, 2))
+    pdf_original_name = Column(String)
+    pdf_stored_path = Column(String)
+    completed_at = Column(DateTime)
+    completed_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
+    cancel_date = Column(Date)
+    cancel_remark = Column(Text)
+    refund_amount = Column(Numeric(12, 2))
+    refund_expected_date = Column(Date)
+    cancelled_at = Column(DateTime)
+    cancelled_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
+    replaced_at = Column(DateTime, default=now_ist)
+    replaced_by_user_id = Column(Integer, ForeignKey("app_user.user_id"))
+
+    completed_by = relationship("AppUser", foreign_keys=[completed_by_user_id])
+    cancelled_by = relationship("AppUser", foreign_keys=[cancelled_by_user_id])
 
 
 class RtoCase(Base):
@@ -73,7 +115,9 @@ class InvoiceDetail(Base):
     hypothecation = Column(String)              # HP: bank name, empty = none
     nominee_name = Column(String)
     nominee_relation = Column(String)
-    insurance_addon = Column(String)            # add-on covers asked for
+    nominee_age = Column(Integer)
+    nominee_relation_other = Column(String)     # when the relation is Other
+    insurance_addon = Column(String)            # add-on covers asked for: comma-separated keys (see service.ADDONS)
     delivery_date = Column(Date)                # planned bike delivery date
     file_original_name = Column(String)
     file_stored_path = Column(String)

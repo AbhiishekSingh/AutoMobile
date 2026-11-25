@@ -75,29 +75,101 @@ function MyProfile() {
 }
 
 function Departments() {
-  const [rows, setRows] = useState(null)
-  const [open, setOpen] = useState(null)
-  useEffect(() => { api.get('/admin/branch-setup/departments').then((r) => setRows(r.data)).catch(() => setRows([])) }, [])
-  if (!rows) return <div className="card-pad muted-note">Loading…</div>
+  const { user } = useAuth()
+  const [data, setData] = useState(null)
+  const [open, setOpen] = useState(null)       // department id whose people are shown
+  const [form, setForm] = useState(null)       // {id?, name, description, head_user_id} while adding / editing
+  const [msg, setMsg] = useState(null)
+  const [showOff, setShowOff] = useState(false)
+  const base = '/admin/branch-setup/departments'
+  const load = () => api.get(base).then((r) => setData(r.data)).catch(() => setData({ departments: [], people: [] }))
+  useEffect(() => { load() }, [])
+  if (!data) return <div className="card-pad muted-note">Loading…</div>
+
+  const run = async (fn, ok) => {
+    setMsg(null)
+    try { await fn(); setMsg({ ok: true, text: ok }); await load(); return true }
+    catch (e) { setMsg({ ok: false, text: errText(e) }); return false }
+  }
+  const save = async (e) => {
+    e.preventDefault()
+    const body = { name: form.name, description: form.description || null, head_user_id: form.head_user_id ? Number(form.head_user_id) : null }
+    const done = await run(() => (form.id ? api.put(`${base}/${form.id}`, body) : api.post(base, body)), form.id ? 'Department saved' : 'Department added')
+    if (done) setForm(null)
+  }
+  const assign = (user_id, department_id) => run(() => api.post(`${base}/assign`, { user_id, department_id: department_id ? Number(department_id) : null }), 'Moved')
+
+  const active = data.departments.filter((d) => d.is_active)
+  const off = data.departments.filter((d) => !d.is_active)
+  const shown = showOff ? data.departments : active
+  const peopleFor = (d) => data.people.filter((p) => p.is_active && p.department_id !== d.id && (p.role !== 'ADMIN' || user?.role === 'ADMIN'))
+
   return (
     <div style={{ padding: 22 }}>
-      <div className="muted-note" style={{ marginBottom: 12 }}>A department is a role. To add someone to a department, or move them, edit their role and branch in <b>Users &amp; roles</b>.</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 14 }}>
-        {rows.map((d) => (
-          <div key={d.role} style={{ border: '1px solid #edf0f4', borderRadius: 14, padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div className="muted-note" style={{ maxWidth: 640 }}>A department is the team a person belongs to. Their <b>role</b> still decides what they can do in the CRM; the department is for organising people and naming a head.</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {off.length > 0 && <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowOff(!showOff)}>{showOff ? 'Hide inactive' : `Show inactive (${off.length})`}</button>}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => { setMsg(null); setForm({ name: '', description: '', head_user_id: '' }) }}>+ New department</button>
+        </div>
+      </div>
+
+      {form && (
+        <form onSubmit={save} style={{ border: '1px solid #dfe5ee', borderRadius: 14, padding: 16, marginBottom: 14, background: '#fafbfd' }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>{form.id ? 'Edit department' : 'New department'}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
+            <div className="field"><label>Name *</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="field"><label>What the team does</label><input className="input" value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+            <div className="field"><label>Department head (optional)</label>
+              <select className="input" value={form.head_user_id || ''} onChange={(e) => setForm({ ...form, head_user_id: e.target.value })}>
+                <option value="">— None —</option>
+                {data.people.filter((p) => p.is_active && (p.role !== 'ADMIN' || user?.role === 'ADMIN')).map((p) => <option key={p.user_id} value={p.user_id}>{p.full_name} ({p.role})</option>)}
+              </select></div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button type="submit" className="btn btn-primary btn-sm">{form.id ? 'Save changes' : 'Add department'}</button>
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => setForm(null)}>Cancel</button>
+          </div>
+          <Box m={msg} />
+        </form>)}
+      {!form && <Box m={msg} />}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, marginTop: msg && !form ? 12 : 0 }}>
+        {shown.map((d) => (
+          <div key={d.id} style={{ border: '1px solid #edf0f4', borderRadius: 14, padding: 16, opacity: d.is_active ? 1 : 0.6 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
-              <div style={{ fontWeight: 700, color: '#1c2740' }}>{d.label}</div>
-              <span className="badge badge-green">{d.active} active</span>
+              <div style={{ fontWeight: 700, color: '#1c2740' }}>{d.name}</div>
+              {d.is_active ? <span className="badge badge-green">{d.active} active</span> : <span className="badge badge-amber">Inactive</span>}
             </div>
-            <div className="muted-note" style={{ margin: '4px 0 10px' }}>{d.about}</div>
-            {d.total === 0 ? <div className="muted-note">No one yet</div> : <>
-              <button type="button" className="btn btn-outline btn-sm" onClick={() => setOpen(open === d.role ? null : d.role)}>{open === d.role ? 'Hide people' : `Show people (${d.total})`}</button>
-              {open === d.role && <div style={{ marginTop: 10 }}>{d.members.map((u) => (
-                <div key={u.user_id} style={{ padding: '6px 0', borderTop: '1px solid #f1f3f6', opacity: u.is_active ? 1 : 0.55 }}>
-                  <span style={{ fontWeight: 600 }}>{u.full_name}</span> <span className="muted-note">{u.login_id}{!u.is_active ? ' · inactive' : ''}{!u.login_enabled ? ' · PIN only' : ''}</span>
-                  {u.branches.length > 0 && <div className="muted-note">{u.branches.join(', ')}</div>}
-                </div>))}</div>}
-            </>}
+            <div className="muted-note" style={{ margin: '4px 0 6px' }}>{d.description || 'No description'}</div>
+            <div style={{ fontSize: 13, marginBottom: 10 }}>Head: {d.head_name ? <b>{d.head_name}</b> : <span className="muted-note">not set</span>}</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => setOpen(open === d.id ? null : d.id)}>{open === d.id ? 'Hide people' : `People (${d.total})`}</button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => { setMsg(null); setForm({ id: d.id, name: d.name, description: d.description || '', head_user_id: d.head_user_id || '' }) }}>Edit</button>
+              {d.is_active
+                ? <button type="button" className="btn btn-outline btn-sm" onClick={() => run(() => api.post(`${base}/${d.id}/deactivate`), 'Department deactivated')}>Deactivate</button>
+                : <button type="button" className="btn btn-outline btn-sm" onClick={() => run(() => api.post(`${base}/${d.id}/activate`), 'Department reactivated')}>Reactivate</button>}
+            </div>
+            {open === d.id && <div style={{ marginTop: 10 }}>
+              {d.members.length === 0 && <div className="muted-note">No one yet</div>}
+              {d.members.map((u) => (
+                <div key={u.user_id} style={{ padding: '7px 0', borderTop: '1px solid #f1f3f6', opacity: u.is_active ? 1 : 0.55 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                    <div><span style={{ fontWeight: 600 }}>{u.full_name}</span>{d.head_user_id === u.user_id && <span className="badge badge-green" style={{ marginLeft: 6 }}>Head</span>}
+                      <div className="muted-note">{u.role}{u.branches.length ? ` · ${u.branches.join(', ')}` : ''}{!u.is_active ? ' · inactive' : ''}</div></div>
+                    {u.is_active && (u.role !== 'ADMIN' || user?.role === 'ADMIN') && (
+                      <select className="input" style={{ maxWidth: 150, fontSize: 12 }} value="" onChange={(e) => e.target.value && assign(u.user_id, e.target.value)}>
+                        <option value="">Move to…</option>
+                        {active.filter((x) => x.id !== d.id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                      </select>)}
+                  </div>
+                </div>))}
+              {d.is_active && peopleFor(d).length > 0 && (
+                <select className="input" style={{ marginTop: 10 }} value="" onChange={(e) => e.target.value && assign(Number(e.target.value), d.id)}>
+                  <option value="">+ Add a person to {d.name}…</option>
+                  {peopleFor(d).map((p) => <option key={p.user_id} value={p.user_id}>{p.full_name} ({p.role})</option>)}
+                </select>)}
+            </div>}
           </div>))}
       </div>
     </div>)

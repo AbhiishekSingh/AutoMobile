@@ -372,11 +372,11 @@ export default function CustomerDetailPage() {
             back={{ label: 'Back to Leads', onClick: () => nav('/leads') }}>
 
       {lead.view_only && <div className="hint" style={{ marginBottom: 14, background: '#fff4d6', color: '#7a5a00' }}>View only. This customer belongs to {lead.salesperson_name || 'another PBA'}. You can look but not change anything.</div>}
-      <JourneyBar leadId={lead.lead_id} cards />
+      {user?.role !== 'PBA' && <JourneyBar leadId={lead.lead_id} cards />}   {/* hidden for the PBA for now (confusing); to be added back later */}
       {!lead.view_only && user?.role !== 'PBA' && <AssignmentCard lead={lead} onChanged={load} />}
       {['DELIVERED', 'CLOSED'].includes(lead.enquiry_stage) && <FinalReviewCard leadId={lead.lead_id} onChanged={load} />}
 
-      <Tabs tabs={[
+      <Tabs initial={new URLSearchParams(window.location.search).get('tab') || undefined} tabs={[
         { key: 'overview', label: 'Overview' },
         { key: 'followups', label: 'Follow-ups', count: lead.followups.length },
         { key: 'testrides', label: 'Test rides', count: lead.test_rides.length },

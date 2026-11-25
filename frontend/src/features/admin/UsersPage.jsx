@@ -7,11 +7,12 @@ const ROLES = ['OWNER', 'GM', 'PBA', 'CRE', 'RTO', 'INSURANCE', 'ADMIN', 'BRANCH
 const ROLE_LABEL = { BRANCH: 'BRANCH (shared branch login)' }
 // branch_id: one branch (every role except CRE)
 // branch_ids: the 1-2 branches a CRE covers
-const EMPTY = { login_id: '', full_name: '', email: '', phone: '', password: '', role: 'PBA', login_enabled: true, pin: '', ls_email: '', ls_name: '', branch_id: '', branch_ids: [] }
+const EMPTY = { login_id: '', full_name: '', email: '', phone: '', password: '', role: 'PBA', login_enabled: true, pin: '', ls_email: '', ls_name: '', branch_id: '', branch_ids: [], department_id: '' }
 
 export function UsersPanel() {
   const [users, setUsers] = useState([])
   const [branches, setBranches] = useState([])
+  const [depts, setDepts] = useState([])
   const [form, setForm] = useState(EMPTY)
   const [editingId, setEditingId] = useState(null)
   const [msg, setMsg] = useState('')
@@ -21,6 +22,7 @@ export function UsersPanel() {
     load()
     // Same endpoint the Import Leads page already uses — reused here so the
     // admin picks a branch by name instead of having to know its numeric id.
+    api.get('/admin/branch-setup/departments').then((r) => setDepts(r.data.departments.filter((d) => d.is_active))).catch(() => setDepts([]))
     api.get('/admin/branches').then((r) => setBranches(r.data)).catch(() => setBranches([]))
   }, [])
 
@@ -40,7 +42,8 @@ export function UsersPanel() {
 
   // What the API gets: CRE sends branch_ids, everyone else a single branch_id
   function payloadFrom(f) {
-    const { branch_ids, ...rest } = f
+    const { branch_ids, department_id, ...rest0 } = f
+    const rest = { ...rest0, department_id: department_id ? Number(department_id) : null }
     if (f.role === 'CRE') return { ...rest, branch_id: null, branch_ids: branch_ids || [] }
     return { ...rest, branch_id: f.branch_id ? Number(f.branch_id) : null }
   }
@@ -76,7 +79,7 @@ export function UsersPanel() {
 
   function edit(u) {
     setEditingId(u.user_id)
-    setForm({ ...EMPTY, ...u, password: '', pin: '', ls_email: u.ls_email || '', ls_name: u.ls_name || '', branch_id: u.branch_id ?? '', branch_ids: u.branch_ids || [] })
+    setForm({ ...EMPTY, ...u, password: '', pin: '', ls_email: u.ls_email || '', ls_name: u.ls_name || '', branch_id: u.branch_id ?? '', branch_ids: u.branch_ids || [], department_id: u.department_id ?? '' })
   }
 
   async function toggle(u) {
@@ -165,6 +168,11 @@ export function UsersPanel() {
                   ))}
                 </select></div>
             )}
+            <div className="field"><label>Department</label>
+              <select className="input" value={form.department_id || ''} onChange={set('department_id')}>
+                <option value="">— Usual department for the role —</option>
+                {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select></div>
             <div style={{ display: 'flex', gap: 10 }}>
               {editingId && <button type="button" className="btn btn-outline" style={{ flex: 1 }}
                 onClick={() => { setEditingId(null); setForm(EMPTY) }}>Cancel</button>}
@@ -178,13 +186,14 @@ export function UsersPanel() {
           <div className="card-header"><h3>Users <span className="muted-note">({users.length})</span></h3></div>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Login ID</th><th>Name</th><th>Role</th><th>Branch</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Login ID</th><th>Name</th><th>Role</th><th>Department</th><th>Branch</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {users.map((u) => (
                   <tr key={u.user_id}>
                     <td className="cell-muted">{u.login_id}</td>
                     <td className="cell-primary">{u.full_name}</td>
                     <td>{u.role}{u.role === 'PBA' && !u.login_enabled && <div><span className="badge badge-amber">Under branch login{u.has_pin ? '' : ' · no PIN'}</span></div>}</td>
+                    <td>{u.department_name || <span className="muted-note">—</span>}</td>
                     <td>{u.role === 'CRE'
                       ? (u.branch_ids?.length ? u.branch_ids.map(branchName).join(', ') : <span className="badge badge-amber">No branches</span>)
                       : branchName(u.branch_id)}</td>

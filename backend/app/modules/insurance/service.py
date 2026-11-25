@@ -7,8 +7,12 @@ from app.modules.handoffs.models import InsuranceCase
 
 # policy type -> documents that MUST be uploaded before the policy can be completed
 REQUIRED_DOCS = {
-    "MBO_ACKO": ["TAX_INVOICE", "AADHAAR", "PAN"],
-    "CUSTOMER_BAGIC": ["AADHAAR_FB", "TAX_INVOICE"],
+    # by insurance company: BAGIC wants Aadhaar front+back as one PDF; the others use the ACKO set
+    # (the requirement file only spells out ACKO and BAGIC, so National Insurance and Policy Bazar follow ACKO for now)
+    "ACKO": ["TAX_INVOICE", "AADHAAR", "PAN"],
+    "BAGIC": ["AADHAAR_FB", "TAX_INVOICE"],
+    "NATIONAL": ["TAX_INVOICE", "AADHAAR", "PAN"],
+    "POLICYBAZAR": ["TAX_INVOICE", "AADHAAR", "PAN"],
 }
 LABELS = {"TAX_INVOICE": "Tax Invoice", "AADHAAR": "Aadhaar Card", "PAN": "PAN Card",
           "AADHAAR_FB": "Aadhaar Card - Front & Back (single PDF)"}

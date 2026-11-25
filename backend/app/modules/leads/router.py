@@ -664,6 +664,49 @@ def list_customers(user: AppUser = Depends(get_current_user), db: Session = Depe
     return CustomerListResponse(total=total, page=page, page_size=page_size, rows=rows)
 
 
+@router.get("/test-rides", dependencies=[Depends(require_roles(*READ_ROLES))])
+def list_test_rides(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db),
+                    bucket: str = "today", search: str | None = None, branch_id: int | None = None,
+                    location: str | None = None):
+    """Every test ride in the user's scope (a CRE: the branches they cover), for the Test rides page.
+    bucket: today / upcoming / overdue (booked or rescheduled, date passed, not completed) / completed / cancelled / all."""
+    now = now_ist()
+    day_start = datetime(now.year, now.month, now.day)
+    day_end = day_start + timedelta(days=1)
+    live = (TestRideStatus.BOOKED, TestRideStatus.RESCHEDULED)
+
+    def base():
+        q = (scope(db.query(TestRide).join(Lead, TestRide.lead_id == Lead.lead_id).join(Customer), user, branch_id))
+        if location:
+            q = q.filter(TestRide.preferred_location == location)
+        if search:
+            like = f"%{search}%"
+            q = q.filter(Customer.full_name.ilike(like) | Customer.phone.ilike(like) | Lead.enquiry_no.ilike(like))
+        return q
+
+    flt = {
+        "today": lambda q: q.filter(TestRide.status.in_(live), TestRide.scheduled_at >= day_start, TestRide.scheduled_at < day_end),
+        "upcoming": lambda q: q.filter(TestRide.status.in_(live), TestRide.scheduled_at >= day_end),
+        "overdue": lambda q: q.filter(TestRide.status.in_(live), TestRide.scheduled_at < day_start),
+        "completed": lambda q: q.filter(TestRide.status == TestRideStatus.COMPLETED),
+        "cancelled": lambda q: q.filter(TestRide.status == TestRideStatus.CANCELLED),
+        "all": lambda q: q}
+    counts = {k: f(base()).count() for k, f in flt.items()}
+    q = flt.get(bucket, flt["all"])(base())
+    # upcoming / today read oldest-first; history newest-first
+    q = q.order_by(TestRide.scheduled_at.asc() if bucket in ("today", "upcoming") else TestRide.scheduled_at.desc())
+    rows = []
+    for t in q.limit(500).all():
+        l = t.lead
+        pba = db.get(AppUser, l.assigned_user_id) if l.assigned_user_id else None
+        rows.append(dict(
+            id=t.id, lead_id=l.lead_id, enquiry_no=l.enquiry_no, customer_name=l.customer.full_name, mobile=l.customer.phone,
+            model_name=t.model.name if t.model else None, color=t.color, status=t.status.value, scheduled_at=t.scheduled_at,
+            slot=t.slot, location=t.preferred_location, pba_name=pba.full_name if pba else None,
+            branch=l.branch.name if l.branch else None, opportunity_status=l.opportunity.name if l.opportunity else None))
+    return {"counts": counts, "rows": rows, "truncated": counts.get(bucket if bucket in counts else "all", 0) > 500}
+
+
 @router.get("/followups", response_model=FollowupListResponse,
             dependencies=[Depends(require_roles(*READ_ROLES))])
 def list_followups(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db),

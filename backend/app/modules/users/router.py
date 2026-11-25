@@ -9,7 +9,8 @@ from app.core.deps import get_current_user, require_roles
 from app.core.security import hash_password
 from app.modules.audit.service import record_changes
 from app.modules.users.access import CRE_MAX_BRANCHES
-from app.modules.users.models import AppUser, Branch, Role, UserBranch
+from app.modules.users.models import AppUser, Branch, Role, UserBranch, Department
+from app.modules.users.departments import default_department_id
 from app.modules.users.schemas import (PasswordReset, PinSet, UserCreate, UserOut,
                                         UserUpdate)
 
@@ -95,6 +96,15 @@ def list_users(db: Session = Depends(get_db)):
     return db.query(AppUser).order_by(AppUser.user_id).all()
 
 
+def _clean_department(db, dept_id):
+    if not dept_id:
+        return None
+    d = db.get(Department, dept_id)
+    if not d or not d.is_active:
+        raise HTTPException(400, "Choose an active department")
+    return d.id
+
+
 @router.post("", response_model=UserOut, status_code=201)
 def create_user(body: UserCreate, actor: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     _guard(actor, body.role)
@@ -106,6 +116,7 @@ def create_user(body: UserCreate, actor: AppUser = Depends(get_current_user), db
         cre_ids = _clean_cre_branches(db, body.branch_ids)
         branch_id = cre_ids[0]   # "home" branch, for anything that reads branch_id
     login_enabled = True if body.role != Role.PBA else body.login_enabled
+    dept_id = _clean_department(db, body.department_id) or default_department_id(db, body.role)
     _check_profile(body.role, login_enabled, branch_id)
     _check_branch_login(db, body.role, branch_id)
     if login_enabled:
@@ -118,7 +129,7 @@ def create_user(body: UserCreate, actor: AppUser = Depends(get_current_user), db
     user = AppUser(login_id=body.login_id, full_name=body.full_name, email=body.email, phone=body.phone,
                    hashed_password=hash_password(pw), login_enabled=login_enabled, pin_hash=pin_hash, role=body.role,
                    ls_email=(body.ls_email or "").strip() or None, ls_name=(body.ls_name or "").strip() or None,
-                   branch_id=branch_id, is_active=True)
+                   branch_id=branch_id, department_id=dept_id, is_active=True)
     _set_branch_links(user, cre_ids)
     db.add(user); db.commit(); db.refresh(user)
     return user
@@ -138,8 +149,13 @@ def update_user(user_id: int, body: UserUpdate, actor: AppUser = Depends(get_cur
 
     before = {f: getattr(user, f, None) for f in USER_TRACKED_FIELDS}
     old_cre_ids = list(user.branch_ids)
+    old_role = user.role
+    if "department_id" in data:
+        data["department_id"] = _clean_department(db, data["department_id"])
     for field, value in data.items():
         setattr(user, field, value)
+    if user.role != old_role and "department_id" not in data:
+        user.department_id = default_department_id(db, user.role)   # moved to a new role -> the usual team for it
 
     if user.role != Role.PBA and user.role != Role.BRANCH:
         user.login_enabled = True

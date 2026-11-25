@@ -14,6 +14,8 @@ class UserOut(BaseModel):
     role: Role
     branch_id: Optional[int] = None
     branch_ids: list[int] = []      # CRE only: the 1-2 branches they cover
+    department_id: Optional[int] = None
+    department_name: Optional[str] = None
     is_active: bool
     login_enabled: bool = True      # False = PBA profile (no own login; works under the branch login)
     has_pin: bool = False
@@ -38,6 +40,7 @@ class UserCreate(BaseModel):
     role: Role
     branch_id: Optional[int] = None
     branch_ids: Optional[list[int]] = None   # required for CRE (1-2), ignored otherwise
+    department_id: Optional[int] = None      # blank = the usual department for the role
 
 
 class UserUpdate(BaseModel):
@@ -47,6 +50,7 @@ class UserUpdate(BaseModel):
     role: Optional[Role] = None
     branch_id: Optional[int] = None
     branch_ids: Optional[list[int]] = None   # CRE: replaces their branches
+    department_id: Optional[int] = None
     is_active: Optional[bool] = None
     login_enabled: Optional[bool] = None
     pin: Optional[str] = None

@@ -30,7 +30,7 @@ function Dot({ done, label }) {
 }
 const Line = () => <span style={{ width: 14, height: 2, background: '#d5dae2', display: 'inline-block' }} />
 
-const policyShort = (l) => (!l ? 'Not selected' : /BAGIC/i.test(l) ? 'BAGIC · Customer policy' : /ACKO/i.test(l) ? 'ACKO · MBO policy' : l)
+const policyShort = (l) => l || 'Not selected'
 
 // responsive card: one row on a wide screen; on a laptop the progress dots drop to their own row under the details
 const CSS = `
@@ -71,7 +71,7 @@ export default function InsuranceDashboardPage() {
   const [pbas, setPbas] = useState([])
   const [chip, setChip] = useState('total')
   const [more, setMore] = useState(false)
-  const [f, setF] = useState({ q: '', status: '', policy_type: '', pba_id: '', document_status: '', date_from: '', date_to: '' })
+  const [f, setF] = useState({ q: '', status: '', customer_type: '', policy_type: '', pba_id: '', document_status: '', date_from: '', date_to: '' })
   useEffect(() => { api.get('/insurance/dashboard').then((r) => setKpi(r.data)).catch(() => setKpi({})); api.get('/insurance/pbas').then((r) => setPbas(r.data)).catch(() => {}) }, [])
   useEffect(() => {
     const params = Object.fromEntries(Object.entries(f).filter(([, v]) => v))
@@ -98,6 +98,32 @@ export default function InsuranceDashboardPage() {
         {first && <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => nav(`/insurance/${first.lead_id}`)}>Start with {first.customer_name} →</button>}
       </div>
 
+      {kpi && (() => {
+        const total = kpi.total || 0, done = kpi.completed || 0, waitN = total - done
+        const attn = (kpi.pba_notification_pending || 0) + (kpi.whatsapp_failed || 0)
+        const pct = total ? Math.round((done / total) * 100) : 0
+        const tile = (k, label, n, color, hint) => (
+          <button key={k} type="button" onClick={() => pick(CHIPS.find((c) => c.k === k))}
+            style={{ flex: '1 1 150px', textAlign: 'left', border: 0, background: 'none', cursor: 'pointer', padding: '2px 18px', borderLeft: '1px solid #eef0f4' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7686', letterSpacing: '.04em', textTransform: 'uppercase' }}>{label}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color, lineHeight: 1.2 }}>{n}</div>
+            <div className="muted-note" style={{ fontSize: 11.5 }}>{hint}</div>
+          </button>)
+        return (
+          <div className="card" style={{ padding: '14px 4px', marginBottom: 14 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'stretch' }}>
+              {tile('total', 'Booked', total, '#1c2740', 'all customers')}
+              {tile('documents_pending', 'Documents pending', kpi.documents_pending || 0, '#8a5a00', 'waiting on documents')}
+              {tile('in_progress', 'In progress', kpi.in_progress || 0, '#2459c4', `${kpi.pending || 0} not started`)}
+              {tile('completed', 'Completed', done, '#17673a', `${pct}% done`)}
+              {tile(attn ? (kpi.whatsapp_failed ? 'whatsapp_failed' : 'pba_notification_pending') : 'completed', 'Needs attention', attn, attn ? '#b3261e' : '#17673a', attn ? 'PBA not notified / WhatsApp failed' : 'nothing stuck')}
+            </div>
+            <div style={{ margin: '12px 18px 0', height: 6, borderRadius: 99, background: '#eef0f4', overflow: 'hidden' }} title={`${done} of ${total} completed`}>
+              <div style={{ width: `${pct}%`, height: '100%', background: '#1f8a4c' }} />
+            </div>
+          </div>)
+      })()}
+
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
         {CHIPS.map((c) => (
           <button key={c.k} type="button" onClick={() => pick(c)}
@@ -108,8 +134,10 @@ export default function InsuranceDashboardPage() {
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
         <input className="input" style={{ maxWidth: 320, flex: '1 1 220px' }} placeholder="🔍 Search name, mobile, booking or policy no." value={f.q} onChange={set('q')} />
+        <select className="input" style={{ maxWidth: 170 }} value={f.customer_type} onChange={set('customer_type')}><option value="">All customer types</option>
+          <option value="MBO">MBO</option><option value="CUSTOMER">Customer</option></select>
         <select className="input" style={{ maxWidth: 190 }} value={f.policy_type} onChange={set('policy_type')}><option value="">All policy types</option>
-          <option value="MBO_ACKO">MBO – ACKO</option><option value="CUSTOMER_BAGIC">Customer – BAGIC</option></select>
+          <option value="ACKO">ACKO</option><option value="BAGIC">BAGIC (Bajaj General)</option><option value="NATIONAL">National Insurance</option><option value="POLICYBAZAR">Policy Bazar</option></select>
         <select className="input" style={{ maxWidth: 170 }} value={f.pba_id} onChange={set('pba_id')}><option value="">All PBAs</option>
           {pbas.map((p) => <option key={p.user_id} value={p.user_id}>{p.full_name}</option>)}</select>
         <button type="button" className="btn btn-outline btn-sm" onClick={() => setMore((v) => !v)}>{more ? 'Fewer filters ▴' : 'More filters ▾'}</button>

@@ -13,6 +13,22 @@ const rupees = (v) => (v === null || v === undefined || v === '') ? '—' : `₹
 const today = () => new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10)
 const Grid = ({ children }) => (
   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, alignItems: 'end' }}>{children}</div>)
+// Dropdown with tick boxes: the customer can take more than one add-on. value is a comma-separated list of keys.
+function AddonPicker({ options, value, onChange }) {
+  const sel = (value || '').split(',').filter(Boolean)
+  const toggle = (k) => onChange((sel.includes(k) ? sel.filter((x) => x !== k) : [...sel, k]).join(','))
+  const names = options.filter((o) => sel.includes(o.value)).map((o) => o.label)
+  return (
+    <details style={{ position: 'relative' }}>
+      <summary className="input" style={{ cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{names.length ? names.join(', ') : 'Select add-ons'}</span><span>▾</span></summary>
+      <div style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, marginTop: 4, background: '#fff', border: '1px solid #dfe5ee', borderRadius: 10, padding: 8, boxShadow: '0 6px 18px rgba(0,0,0,.1)' }}>
+        {options.map((o) => (
+          <label key={o.value} className="checkbox-row" style={{ display: 'flex', gap: 8, padding: '6px 8px', fontWeight: 400, cursor: 'pointer' }}>
+            <input type="checkbox" checked={sel.includes(o.value)} onChange={() => toggle(o.value)} />{o.label}</label>))}
+      </div>
+    </details>)
+}
 const Row = ({ k, v }) => (<div><div className="muted-note">{k}</div><div style={{ fontWeight: 600 }}>{v || '—'}</div></div>)
 
 export default function HandoffPanel({ leadId, onChanged }) {
@@ -55,11 +71,11 @@ export default function HandoffPanel({ leadId, onChanged }) {
     setP(d)
     if (d.insurance) setIns({ policy_type: d.insurance.policy_type || '', nominee_name: d.insurance.nominee_name || '',
       nominee_age: d.insurance.nominee_age ?? '', nominee_relation: d.insurance.nominee_relation || '',
-      nominee_relation_other: d.insurance.nominee_relation_other || '', hypothecation: d.insurance.hypothecation || '' })
+      nominee_relation_other: d.insurance.nominee_relation_other || '', hypothecation: d.insurance.hypothecation || '',
+      addons: (d.insurance.addons || []).join(','), customer_type: d.insurance.customer_type || '' })
     const v = d.invoice || {}
     setInv({ invoice_no: v.invoice_no || '', invoice_date: v.invoice_date || '', chassis_no: v.chassis_no || '',
       engine_no: v.engine_no || '', registration_type: v.registration_type || '', choice_number: v.choice_number || '', hypothecation: v.hypothecation || '',
-      nominee_name: v.nominee_name || '', nominee_relation: v.nominee_relation || '', insurance_addon: v.insurance_addon || '',
       delivery_date: v.delivery_date || '' })
     if (d.rto) setRto({ status: d.rto.status, registration_type: d.rto.registration_type || '', choice_number: d.rto.choice_number || '',
       registration_no: d.rto.registration_no || '', registration_date: d.rto.registration_date || '',
@@ -119,17 +135,88 @@ export default function HandoffPanel({ leadId, onChanged }) {
   const setI = (k) => (e) => setIns({ ...ins, [k]: e.target.value })
   const toggleItem = (v) => setAsk({ ...ask, items: ask.items.includes(v) ? ask.items.filter((x) => x !== v) : [...ask.items, v] })
 
+  // Customer type, policy type (insurance company), add-ons and nominee: asked by the PBA; the Insurance login only views them.
+  // A plain function (not a component), so typing in an input does not remount it.
+  const insFields = (withHyp) => (<>
+    <div className="field" style={{ marginBottom: 0 }}><label>Customer type *</label>
+      <select className="input" value={ins.customer_type || ''} onChange={setI('customer_type')}>
+        <option value="">Select</option>{p.options.customer_types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
+    <div className="field" style={{ marginBottom: 0 }}><label>Policy type *</label>
+      <select className="input" value={ins.policy_type || ''} onChange={setI('policy_type')}>
+        <option value="">Select</option>{p.options.policy_types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
+    <div className="field" style={{ marginBottom: 0 }}><label>Insurance add-ons</label>
+      <AddonPicker options={p.options.addons} value={ins.addons || ''} onChange={(v) => setIns({ ...ins, addons: v })} /></div>
+    <div className="field" style={{ marginBottom: 0 }}><label>Nominee name *</label><input className="input" value={ins.nominee_name || ''} onChange={setI('nominee_name')} /></div>
+    <div className="field" style={{ marginBottom: 0 }}><label>Nominee age *</label><input className="input" type="number" min="1" max="120" value={ins.nominee_age ?? ''} onChange={setI('nominee_age')} /></div>
+    <div className="field" style={{ marginBottom: 0 }}><label>Nominee relation *</label>
+      <select className="input" value={ins.nominee_relation || ''} onChange={setI('nominee_relation')}>
+        <option value="">Select</option>{p.options.nominee_relations.map((o) => <option key={o}>{o}</option>)}</select></div>
+    {ins.nominee_relation === 'Other' && <div className="field" style={{ marginBottom: 0 }}><label>Specify relation *</label><input className="input" value={ins.nominee_relation_other || ''} onChange={setI('nominee_relation_other')} /></div>}
+    {withHyp && <div className="field" style={{ marginBottom: 0 }}><label>Hypothecation (bank, if HP)</label><input className="input" value={ins.hypothecation || ''} onChange={setI('hypothecation')} /></div>}
+  </>)
+  const saveIns = (withHyp) => run(() => api.put(`/leads/${leadId}/insurance`, {
+    customer_type: ins.customer_type || null, policy_type: ins.policy_type || null, nominee_name: ins.nominee_name || null,
+    nominee_age: ins.nominee_age === '' || ins.nominee_age == null ? null : Number(ins.nominee_age), nominee_relation: ins.nominee_relation || null,
+    nominee_relation_other: ins.nominee_relation === 'Other' ? (ins.nominee_relation_other || null) : null, addons: ins.addons || '',
+    ...(withHyp ? { hypothecation: ins.hypothecation || null } : {}) }), 'Insurance details saved. The insurance team can see them.')
+
   return (
     <div className="card">
       <div className="card-header"><h3>Insurance, RTO &amp; Approvals</h3></div>
       <div className="card-pad">
         {note_}
 
-        {/* ---------- INVOICE ---------- */}
-        {(p.invoice || (isPba && p.booking_no)) && (<>
+        {/* ---------- INSURANCE ---------- */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <b>1. Insurance</b>{I && <span className={'badge ' + BADGE[I.status]}>{pretty(I.status)}</span>}
+        </div>
+        {!I && <div className="muted-note" style={{ margin: '6px 0 14px' }}>Starts automatically when the Opportunity Status is BOOKING DONE.</div>}
+        {I && I.status === 'COMPLETED' && (
+          <div style={{ margin: '8px 0 14px' }}>
+            <Grid><Row k="Customer type" v={I.customer_type === 'MBO' ? 'MBO' : I.customer_type ? 'Customer' : null} /><Row k="Policy type" v={I.policy_type_label} /><Row k="Add-ons" v={(I.addon_labels || []).join(', ')} /><Row k="Policy no." v={I.policy_no} />
+              <Row k="Valid" v={`${fmtDate(I.policy_start)} → ${fmtDate(I.policy_expiry)}`} /><Row k="Premium" v={rupees(I.premium)} />
+              <Row k="Nominee" v={`${I.nominee_name} (${I.nominee_age}), ${I.nominee_relation === 'Other' ? I.nominee_relation_other : I.nominee_relation}`} />
+              <Row k="Hypothecation (HP)" v={I.hypothecation} />
+              <Row k="Done by" v={`${I.completed_by || ''} · ${fmtDateTime(I.completed_at)}`} />
+              <div><button className="btn btn-outline btn-sm" onClick={openPolicy}>View insurance PDF</button></div></Grid>
+          </div>)}
+        {I && I.status !== 'COMPLETED' && (canInsurance ? (
+          <div style={{ margin: '8px 0 14px' }}>
+            <Grid>
+              {insFields(true)}
+              <div><button className="btn btn-outline" disabled={busy} onClick={() => saveIns(true)}>Save details</button></div>
+            </Grid>
+            <div style={{ fontWeight: 600, fontSize: 13, margin: '14px 0 8px' }}>Policy created? Upload it to complete the insurance</div>
+            <Grid>
+              <div className="field" style={{ marginBottom: 0 }}><label>Policy no. *</label><input className="input" value={pol.policy_no} onChange={(e) => setPol({ ...pol, policy_no: e.target.value })} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>Start date *</label><input className="input" type="date" value={pol.policy_start} onChange={(e) => setPol({ ...pol, policy_start: e.target.value })} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>Expiry date *</label><input className="input" type="date" value={pol.policy_expiry} onChange={(e) => setPol({ ...pol, policy_expiry: e.target.value })} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>Premium (₹)</label><input className="input" type="number" min="0" value={pol.premium} onChange={(e) => setPol({ ...pol, premium: e.target.value })} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>Policy PDF *</label><input className="input" type="file" accept=".pdf" onChange={(e) => setPolFile(e.target.files?.[0] || null)} /></div>
+              <div><button className="btn btn-primary" disabled={busy} onClick={() => {
+                if (!polFile) { setMsg({ type: 'error', text: 'Choose the policy PDF.' }); return }
+                const fd = new FormData(); fd.append('policy_no', pol.policy_no); fd.append('policy_start', pol.policy_start)
+                fd.append('policy_expiry', pol.policy_expiry); if (pol.premium !== '') fd.append('premium', pol.premium); fd.append('file', polFile)
+                run(() => api.post(`/leads/${leadId}/insurance/policy`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }), 'Insurance completed. The PBA and RTO have been notified.')
+              }}>Complete insurance</button></div>
+            </Grid>
+          </div>) : (
+          isPba ? (
+            <div style={{ margin: '8px 0 14px' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Insurance details</div>
+              <Grid>{insFields(false)}
+                <div><button className="btn btn-primary" disabled={busy} onClick={() => saveIns(false)}>Save insurance details</button></div></Grid>
+              <div className="muted-note" style={{ marginTop: 6 }}>Ask the customer for these. The insurance team only views them and uses them to prepare the policy.</div>
+            </div>)
+          : <div className="muted-note" style={{ margin: '6px 0 14px' }}>The insurance team is processing this booking.</div>))}
+
+        {/* ---------- INVOICE (kept inside the Insurance section) ---------- */}
+        {(p.invoice || (isPba && (p.booking_no || I))) && (<>
+          <hr style={{ border: 0, borderTop: '1px solid #eee', margin: '8px 0 14px' }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <b>1. Invoice details</b>{p.invoice && <span className="badge badge-green">Saved</span>}
+            <b>Invoice details</b>{p.invoice && <span className="badge badge-green">Saved</span>}
           </div>
+          {isPba && !p.booking_no && <div className="hint" style={{ margin: '8px 0' }}>Record the booking payment first (Booking &amp; Payment tab). The invoice can be saved after that.</div>}
           {isPba ? (
             <div style={{ margin: '8px 0 14px' }}>
               {invRead && <div className="hint" style={{ marginBottom: 10 }}>
@@ -150,13 +237,8 @@ export default function HandoffPanel({ leadId, onChanged }) {
                     <option value="">Select</option>{p.options.reg_types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
                 {inv.registration_type === 'CHOICE' && <div className="field" style={{ marginBottom: 0 }}><label>Choice number</label><input className="input" value={inv.choice_number} maxLength={10} onChange={(e) => setInv({ ...inv, choice_number: e.target.value.toUpperCase() })} /></div>}
                 <div className="field" style={{ marginBottom: 0 }}><label>Hypothecation (HP) bank</label><input className="input" value={inv.hypothecation} onChange={(e) => setInv({ ...inv, hypothecation: e.target.value })} /></div>
-                <div className="field" style={{ marginBottom: 0 }}><label>Nominee name</label><input className="input" value={inv.nominee_name} onChange={(e) => setInv({ ...inv, nominee_name: e.target.value })} /></div>
-                <div className="field" style={{ marginBottom: 0 }}><label>Nominee relation</label>
-                  <select className="input" value={inv.nominee_relation} onChange={(e) => setInv({ ...inv, nominee_relation: e.target.value })}>
-                    <option value="">Select</option>{p.options.nominee_relations.map((o) => <option key={o}>{o}</option>)}</select></div>
-                <div className="field" style={{ marginBottom: 0 }}><label>Insurance add-on</label><input className="input" value={inv.insurance_addon} onChange={(e) => setInv({ ...inv, insurance_addon: e.target.value })} placeholder="e.g. Zero depreciation" /></div>
                 <div className="field" style={{ marginBottom: 0 }}><label>Bike delivery date</label><input className="input" type="date" min={p.invoice ? undefined : today()} value={inv.delivery_date} onChange={(e) => setInv({ ...inv, delivery_date: e.target.value })} /></div>
-                <div><button className="btn btn-primary" disabled={busy} onClick={saveInvoice}>{p.invoice ? 'Update invoice details' : 'Save invoice details'}</button></div>
+                <div><button className="btn btn-primary" disabled={busy || !p.booking_no} onClick={saveInvoice}>{p.invoice ? 'Update invoice details' : 'Save invoice details'}</button></div>
               </Grid>
               <div className="muted-note" style={{ marginTop: 6 }}>Chassis and engine numbers go to the Owner's ATW record, the insurance team and the RTO automatically.</div>
             </div>) : (
@@ -166,65 +248,14 @@ export default function HandoffPanel({ leadId, onChanged }) {
               <Row k="Registration type" v={p.options.reg_types.find((o) => o.value === p.invoice.registration_type)?.label} />
               {p.invoice.registration_type === 'CHOICE' && <Row k="Choice number" v={p.invoice.choice_number} />}
               <Row k="Hypothecation (HP)" v={p.invoice.hypothecation} />
-              <Row k="Nominee" v={[p.invoice.nominee_name, p.invoice.nominee_relation].filter(Boolean).join(', ')} />
-              <Row k="Add-on" v={p.invoice.insurance_addon} /><Row k="Bike delivery date" v={fmtDate(p.invoice.delivery_date)} />
+              <Row k="Bike delivery date" v={fmtDate(p.invoice.delivery_date)} />
               {p.invoice.has_file && <div><button className="btn btn-outline btn-sm" onClick={openInvoice}>View invoice copy</button></div>}</Grid></div>)}
-          <hr style={{ border: 0, borderTop: '1px solid #eee', margin: '8px 0 14px' }} />
         </>)}
-
-        {/* ---------- INSURANCE ---------- */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <b>2. Insurance</b>{I && <span className={'badge ' + BADGE[I.status]}>{pretty(I.status)}</span>}
-        </div>
-        {!I && <div className="muted-note" style={{ margin: '6px 0 14px' }}>Starts automatically when the Opportunity Status is BOOKING DONE.</div>}
-        {I && I.status === 'COMPLETED' && (
-          <div style={{ margin: '8px 0 14px' }}>
-            <Grid><Row k="Policy type" v={I.policy_type_label} /><Row k="Policy no." v={I.policy_no} />
-              <Row k="Valid" v={`${fmtDate(I.policy_start)} → ${fmtDate(I.policy_expiry)}`} /><Row k="Premium" v={rupees(I.premium)} />
-              <Row k="Nominee" v={`${I.nominee_name} (${I.nominee_age}), ${I.nominee_relation === 'Other' ? I.nominee_relation_other : I.nominee_relation}`} />
-              <Row k="Hypothecation (HP)" v={I.hypothecation} />
-              <Row k="Done by" v={`${I.completed_by || ''} · ${fmtDateTime(I.completed_at)}`} />
-              <div><button className="btn btn-outline btn-sm" onClick={openPolicy}>View insurance PDF</button></div></Grid>
-          </div>)}
-        {I && I.status !== 'COMPLETED' && (canInsurance ? (
-          <div style={{ margin: '8px 0 14px' }}>
-            <Grid>
-              <div className="field" style={{ marginBottom: 0 }}><label>Policy type *</label>
-                <select className="input" value={ins.policy_type || ''} onChange={setI('policy_type')}>
-                  <option value="">Select</option>{p.options.policy_types.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>Nominee name *</label><input className="input" value={ins.nominee_name || ''} onChange={setI('nominee_name')} /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>Nominee age *</label><input className="input" type="number" min="1" max="120" value={ins.nominee_age ?? ''} onChange={setI('nominee_age')} /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>Nominee relation *</label>
-                <select className="input" value={ins.nominee_relation || ''} onChange={setI('nominee_relation')}>
-                  <option value="">Select</option>{p.options.nominee_relations.map((o) => <option key={o}>{o}</option>)}</select></div>
-              {ins.nominee_relation === 'Other' && <div className="field" style={{ marginBottom: 0 }}><label>Specify relation *</label><input className="input" value={ins.nominee_relation_other || ''} onChange={setI('nominee_relation_other')} /></div>}
-              <div className="field" style={{ marginBottom: 0 }}><label>Hypothecation (bank, if HP)</label><input className="input" value={ins.hypothecation || ''} onChange={setI('hypothecation')} /></div>
-              <div><button className="btn btn-outline" disabled={busy} onClick={() => run(() => api.put(`/leads/${leadId}/insurance`, {
-                policy_type: ins.policy_type || null, nominee_name: ins.nominee_name || null,
-                nominee_age: ins.nominee_age === '' ? null : Number(ins.nominee_age), nominee_relation: ins.nominee_relation || null,
-                nominee_relation_other: ins.nominee_relation_other || null, hypothecation: ins.hypothecation || null }), 'Insurance details saved.')}>Save details</button></div>
-            </Grid>
-            <div style={{ fontWeight: 600, fontSize: 13, margin: '14px 0 8px' }}>Policy created? Upload it to complete the insurance</div>
-            <Grid>
-              <div className="field" style={{ marginBottom: 0 }}><label>Policy no. *</label><input className="input" value={pol.policy_no} onChange={(e) => setPol({ ...pol, policy_no: e.target.value })} /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>Start date *</label><input className="input" type="date" value={pol.policy_start} onChange={(e) => setPol({ ...pol, policy_start: e.target.value })} /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>Expiry date *</label><input className="input" type="date" value={pol.policy_expiry} onChange={(e) => setPol({ ...pol, policy_expiry: e.target.value })} /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>Premium (₹)</label><input className="input" type="number" min="0" value={pol.premium} onChange={(e) => setPol({ ...pol, premium: e.target.value })} /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>Policy PDF *</label><input className="input" type="file" accept=".pdf" onChange={(e) => setPolFile(e.target.files?.[0] || null)} /></div>
-              <div><button className="btn btn-primary" disabled={busy} onClick={() => {
-                if (!polFile) { setMsg({ type: 'error', text: 'Choose the policy PDF.' }); return }
-                const fd = new FormData(); fd.append('policy_no', pol.policy_no); fd.append('policy_start', pol.policy_start)
-                fd.append('policy_expiry', pol.policy_expiry); if (pol.premium !== '') fd.append('premium', pol.premium); fd.append('file', polFile)
-                run(() => api.post(`/leads/${leadId}/insurance/policy`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }), 'Insurance completed. The PBA and RTO have been notified.')
-              }}>Complete insurance</button></div>
-            </Grid>
-          </div>) : (
-          <div className="muted-note" style={{ margin: '6px 0 14px' }}>The insurance team is processing this booking{I.policy_type ? ` (${I.policy_type_label})` : ''}.</div>))}
 
         {/* ---------- RTO ---------- */}
         <hr style={{ border: 0, borderTop: '1px solid #eee', margin: '8px 0 14px' }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <b>3. RTO registration</b>{R && <span className={'badge ' + BADGE[R.status]}>{R.status_label}</span>}
+          <b>2. RTO registration</b>{R && <span className={'badge ' + BADGE[R.status]}>{R.status_label}</span>}
         </div>
         {!R && <div className="muted-note" style={{ margin: '6px 0 14px' }}>Starts when the insurance policy is uploaded.</div>}
         {R && !canRto && (<div style={{ margin: '8px 0 14px' }}><Grid><Row k="Registration type" v={R.registration_type_label} />{R.registration_type === 'CHOICE' && <Row k="Choice number" v={R.choice_number} />}

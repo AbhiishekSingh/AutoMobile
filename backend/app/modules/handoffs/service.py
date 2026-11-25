@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from fastapi import HTTPException
 
 from app.core.database import now_ist
-from app.modules.handoffs.models import (AtwApproval, InsuranceCase, InvoiceDetail, OwnerApproval,
+from app.modules.handoffs.models import (InsurancePolicyHistory, AtwApproval, InsuranceCase, InvoiceDetail, OwnerApproval,
                                          RtoCase)
 from app.modules.leads.stages import change_stage
 from app.modules.leads.lookup_names import lookup_key
@@ -15,9 +15,28 @@ from app.modules.notifications.service import create_notification
 from app.modules.payments import service as pay_svc
 from app.modules.users.models import AppUser, Role, UserBranch
 
-POLICY_TYPES = {"MBO_ACKO": ("MBO Policy - ACKO", "ACKO"),
-                "CUSTOMER_BAGIC": ("Customer Policy - BAGIC (Bajaj General)", "Bajaj General")}
+# policy type = the insurance company: key -> (label in the dropdown, company name on documents / messages)
+POLICY_TYPES = {"ACKO": ("ACKO", "ACKO"),
+                "BAGIC": ("BAGIC (Bajaj General)", "Bajaj General"),
+                "NATIONAL": ("National Insurance", "National Insurance"),
+                "POLICYBAZAR": ("Policy Bazar", "Policy Bazar")}
+CUSTOMER_TYPES = {"MBO": "MBO", "CUSTOMER": "Customer"}
 NOMINEE_RELATIONS = ["Father", "Mother", "Spouse", "Son", "Daughter", "Brother", "Sister", "Other"]
+# insurance add-ons the PBA notes while taking the invoice details (stored as comma-separated keys)
+ADDONS = {"ZERO_DEP": "Zero Depreciation", "PA": "PA - Personal Accident Cover", "RTI": "RTI - Return to Invoice",
+          "ENGINE": "Engine Protection", "HELMET": "Helmet Protection"}
+def policy_label(case):
+    """e.g. "MBO Policy - ACKO" / "Customer Policy - BAGIC (Bajaj General)"; None until the PBA has chosen."""
+    if not case or case.policy_type not in POLICY_TYPES:
+        return None
+    ct = CUSTOMER_TYPES.get(case.customer_type)
+    return f"{ct} Policy - {POLICY_TYPES[case.policy_type][0]}" if ct else POLICY_TYPES[case.policy_type][0]
+
+
+def policy_type_options():
+    return [{"value": k, "label": v[0]} for k, v in POLICY_TYPES.items()]
+
+
 REG_TYPES = {"REGULAR": "Regular No.", "CHOICE": "Choice No.", "BH_PASSING": "BH Passing No."}
 RTO_STATUSES = {"PENDING": "Pending", "IN_PROCESS": "In process", "REGISTERED": "Registered"}
 SPECIAL_ITEMS = {"PRICE": "Price", "CHOICE_NO": "Choice No. plate", "BH_PASSING_NO": "BH Passing No. plate",
@@ -100,8 +119,10 @@ def complete_insurance(db, lead: Lead, c: InsuranceCase, *, policy_no, start, ex
         raise HTTPException(400, "Premium cannot be negative")
     dup = db.query(InsuranceCase).filter(InsuranceCase.policy_no.ilike(policy_no),
                                          InsuranceCase.id != c.id).first()
+    if not dup:
+        dup = db.query(InsurancePolicyHistory).filter(InsurancePolicyHistory.policy_no.ilike(policy_no)).first()
     if dup:
-        raise HTTPException(400, "This policy number is already used on another booking")
+        raise HTTPException(400, "This policy number has already been used" + (" on a cancelled policy" if isinstance(dup, InsurancePolicyHistory) else " on another booking"))
     c.policy_no, c.policy_start, c.policy_expiry, c.premium = policy_no, start, expiry, premium
     c.pdf_original_name, c.pdf_stored_path, c.pdf_size_bytes = (saved["original_name"], saved["stored_path"],
                                                                 saved["size_bytes"])
@@ -286,6 +307,16 @@ def save_invoice(db, lead: Lead, d: dict, saved, user) -> InvoiceDetail:
         raise HTTPException(400, "The delivery date cannot be in the past")
     if d.get("nominee_relation") not in (None, "", *NOMINEE_RELATIONS):
         raise HTTPException(400, "Unknown nominee relation")
+    if d.get("nominee_age") is not None and not (1 <= int(d["nominee_age"]) <= 120):
+        raise HTTPException(400, "The nominee age must be between 1 and 120")
+    if d.get("nominee_relation") == "Other" and not (d.get("nominee_relation_other") or "").strip():
+        raise HTTPException(400, "Say what the nominee's relation is")
+    addons = [a for a in (d.get("insurance_addon") or "").split(",") if a.strip()]
+    if any(a.strip() not in ADDONS for a in addons):
+        raise HTTPException(400, "Unknown insurance add-on")
+    d["insurance_addon"] = ",".join(dict.fromkeys(a.strip() for a in addons)) or None
+    if d.get("nominee_relation") != "Other":
+        d["nominee_relation_other"] = None
 
     first = row is None
     if first:
@@ -293,9 +324,10 @@ def save_invoice(db, lead: Lead, d: dict, saved, user) -> InvoiceDetail:
                             created_by_user_id=user.user_id)
         db.add(row)
     row.chassis_no, row.engine_no = chassis, engine
-    for k in ("invoice_no", "registration_type", "choice_number", "hypothecation", "nominee_name", "nominee_relation", "insurance_addon"):
+    for k in ("invoice_no", "registration_type", "choice_number", "hypothecation", "nominee_name", "nominee_relation", "nominee_relation_other", "insurance_addon"):
         v = d.get(k)
         setattr(row, k, (v.strip() or None) if isinstance(v, str) else v)
+    row.nominee_age = d.get("nominee_age")
     row.invoice_date, row.delivery_date = d.get("invoice_date"), d.get("delivery_date")
     if saved:
         row.file_original_name, row.file_stored_path = saved["original_name"], saved["stored_path"]
@@ -315,10 +347,13 @@ def _push_invoice_details(db, lead: Lead, inv: InvoiceDetail) -> None:
     if ins and ins.status != "COMPLETED":                    # prefill only what is still empty
         if inv.hypothecation and not ins.hypothecation:
             ins.hypothecation = inv.hypothecation
-        if inv.nominee_name and not ins.nominee_name:
+        if inv.nominee_name and not ins.nominee_name:       # the nominee the PBA asked the customer for
             ins.nominee_name = inv.nominee_name
+            if inv.nominee_age and not ins.nominee_age:
+                ins.nominee_age = inv.nominee_age
             if inv.nominee_relation and not ins.nominee_relation:
                 ins.nominee_relation = inv.nominee_relation
+                ins.nominee_relation_other = inv.nominee_relation_other
     rto = get_case(db, RtoCase, lead.lead_id)
     if rto:
         if inv.registration_type:
@@ -343,15 +378,19 @@ def panel(db, lead: Lead) -> dict:
         "booking_no": booking.booking_no if booking else None,
         "insurance": None if not ins else {
             "status": ins.status, "policy_type": ins.policy_type,
-            "policy_type_label": POLICY_TYPES.get(ins.policy_type, (None,))[0],
+            "policy_type_label": policy_label(ins),
             "company": POLICY_TYPES.get(ins.policy_type, (None, None))[1],
             "nominee_name": ins.nominee_name, "nominee_age": ins.nominee_age,
             "nominee_relation": ins.nominee_relation, "nominee_relation_other": ins.nominee_relation_other,
             "hypothecation": ins.hypothecation, "policy_no": ins.policy_no,
+            "customer_type": ins.customer_type, "addons": [k for k in (ins.addons or "").split(",") if k in ADDONS],
+            "addon_labels": [ADDONS[k] for k in (ins.addons or "").split(",") if k in ADDONS],
             "policy_start": _d(ins.policy_start), "policy_expiry": _d(ins.policy_expiry),
             "premium": ins.premium, "has_pdf": bool(ins.pdf_stored_path),
             "completed_at": ins.completed_at,
             "completed_by": ins.completed_by.full_name if ins.completed_by else None,
+            "policy_status": ins.policy_status or "ACTIVE", "cancel_date": _d(ins.cancel_date), "cancel_remark": ins.cancel_remark,
+            "refund_amount": ins.refund_amount, "refund_expected_date": _d(ins.refund_expected_date),
             "nominee_missing": check_nominee(ins)},
         "rto": None if not rto else {
             "status": rto.status, "status_label": RTO_STATUSES.get(rto.status),
@@ -364,7 +403,10 @@ def panel(db, lead: Lead) -> dict:
             "invoice_no": inv.invoice_no, "invoice_date": _d(inv.invoice_date), "chassis_no": inv.chassis_no,
             "engine_no": inv.engine_no, "registration_type": inv.registration_type, "choice_number": inv.choice_number,
             "hypothecation": inv.hypothecation, "nominee_name": inv.nominee_name,
-            "nominee_relation": inv.nominee_relation, "insurance_addon": inv.insurance_addon,
+            "nominee_relation": inv.nominee_relation, "nominee_age": inv.nominee_age,
+            "nominee_relation_other": inv.nominee_relation_other, "insurance_addon": inv.insurance_addon,
+            "addons": [k for k in (inv.insurance_addon or "").split(",") if k in ADDONS],
+            "addon_labels": [ADDONS[k] for k in (inv.insurance_addon or "").split(",") if k in ADDONS],
             "delivery_date": _d(inv.delivery_date), "file_name": inv.file_original_name,
             "has_file": bool(inv.file_stored_path), "saved_at": inv.updated_at},
         "approval": None if not appr else {
@@ -381,7 +423,9 @@ def panel(db, lead: Lead) -> dict:
                 "decided_at": atw.decided_at if atw else None,
                 "decided_by": atw.decided_by.full_name if atw and atw.decided_by else None,
                 "decision_note": atw.decision_note if atw else None},
-        "options": {"policy_types": [{"value": k, "label": v[0]} for k, v in POLICY_TYPES.items()],
+        "options": {"addons": [{"value": k, "label": v} for k, v in ADDONS.items()],
+                    "policy_types": policy_type_options(),
+                    "customer_types": [{"value": k, "label": v} for k, v in CUSTOMER_TYPES.items()],
                     "nominee_relations": NOMINEE_RELATIONS,
                     "reg_types": [{"value": k, "label": v} for k, v in REG_TYPES.items()],
                     "rto_statuses": [{"value": k, "label": v} for k, v in RTO_STATUSES.items()],

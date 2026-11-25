@@ -72,6 +72,7 @@ def save_invoice(lead_id: int, chassis_no: str = Form(...), engine_no: str = For
                  invoice_no: Optional[str] = Form(None), invoice_date: Optional[date] = Form(None),
                  registration_type: Optional[str] = Form(None), choice_number: Optional[str] = Form(None), hypothecation: Optional[str] = Form(None),
                  nominee_name: Optional[str] = Form(None), nominee_relation: Optional[str] = Form(None),
+                 nominee_age: Optional[int] = Form(None), nominee_relation_other: Optional[str] = Form(None),
                  insurance_addon: Optional[str] = Form(None), delivery_date: Optional[date] = Form(None),
                  file: Optional[UploadFile] = File(None), user: AppUser = Depends(get_current_user),
                  db: Session = Depends(get_db)):
@@ -88,6 +89,7 @@ def save_invoice(lead_id: int, chassis_no: str = Form(...), engine_no: str = For
             chassis_no=chassis_no, engine_no=engine_no, invoice_no=invoice_no, invoice_date=invoice_date,
             registration_type=registration_type or None, choice_number=(choice_number or "").strip().upper() or None, hypothecation=hypothecation,
             nominee_name=nominee_name, nominee_relation=nominee_relation or None,
+            nominee_age=nominee_age, nominee_relation_other=nominee_relation_other,
             insurance_addon=insurance_addon, delivery_date=delivery_date), saved, user)
         record_changes(db, entity_type="invoice", entity_id=row.id,
                        before=before or {"chassis_no": None, "engine_no": None, "registration_type": None, "delivery_date": None},
@@ -118,16 +120,18 @@ def get_invoice_file(lead_id: int, download: bool = False, user: AppUser = Depen
 
 # ---------------- insurance ----------------
 class InsuranceDetails(BaseModel):
-    policy_type: Optional[str] = None
+    customer_type: Optional[str] = None     # MBO / CUSTOMER
+    policy_type: Optional[str] = None       # ACKO / BAGIC / NATIONAL / POLICYBAZAR
     nominee_name: Optional[str] = None
     nominee_age: Optional[int] = None
     nominee_relation: Optional[str] = None
     nominee_relation_other: Optional[str] = None
     hypothecation: Optional[str] = None
+    addons: Optional[str] = None            # comma-separated add-on keys
 
 
 @router.put("/leads/{lead_id}/insurance",
-            dependencies=[Depends(require_roles(*svc.WRITE_INSURANCE_ROLES))])
+            dependencies=[Depends(require_roles("PBA", "CRE", "ADMIN"))])   # the PBA fills policy type, nominee and add-ons; the Insurance login only views them
 def save_insurance(lead_id: int, body: InsuranceDetails, user: AppUser = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     lead = get_visible_lead(db, user, lead_id)
@@ -139,10 +143,19 @@ def save_insurance(lead_id: int, body: InsuranceDetails, user: AppUser = Depends
     d = body.model_dump(exclude_unset=True)
     if d.get("policy_type") not in (None, *svc.POLICY_TYPES):
         raise HTTPException(400, "Unknown policy type")
+    if d.get("customer_type") not in (None, *svc.CUSTOMER_TYPES):
+        raise HTTPException(400, "Unknown customer type")
     if d.get("nominee_relation") not in (None, *svc.NOMINEE_RELATIONS):
         raise HTTPException(400, "Unknown nominee relation")
     if d.get("nominee_age") is not None and not (1 <= d["nominee_age"] <= 120):
         raise HTTPException(400, "Nominee age must be between 1 and 120")
+    if "addons" in d:
+        keys = [a.strip() for a in (d["addons"] or "").split(",") if a.strip()]
+        if any(a not in svc.ADDONS for a in keys):
+            raise HTTPException(400, "Unknown insurance add-on")
+        d["addons"] = ",".join(dict.fromkeys(keys)) or None
+    if d.get("nominee_relation") == "Other" and "nominee_relation_other" in d and not (d["nominee_relation_other"] or "").strip():
+        raise HTTPException(400, "Say what the nominee's relation is")
     fields = tuple(d)
     before = {f: getattr(case, f) for f in fields}
     for k, v in d.items():
@@ -292,6 +305,41 @@ def decide_atw(lead_id: int, body: Decision, user: AppUser = Depends(get_current
             dependencies=[Depends(require_roles(*SALES_ROLES, *MANAGER_ROLES))])
 def delivery_reminders(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     return svc.delivery_reminders(db, scope_leads(db.query(Lead), user))
+
+
+@router.get("/handoffs/pipeline", dependencies=[Depends(require_roles(*SALES_ROLES, *MANAGER_ROLES))])
+def pipeline(user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Booked customers still waiting for delivery, with where each one is now (Insurance -> RTO -> Invoice -> ready).
+    Feeds the PBA's Invoices and RTO pages so they can pick a customer without opening every file."""
+    from app.modules.leads.models import EnquiryStage
+    q = (scope_leads(db.query(Lead), user)
+         .join(InsuranceCase, InsuranceCase.lead_id == Lead.lead_id)
+         .filter(Lead.enquiry_stage.notin_([EnquiryStage.DELIVERED, EnquiryStage.CLOSED]))
+         .add_columns(InsuranceCase))
+    out = []
+    for lead, ins in q.all():
+        rto, inv = svc.get_case(db, RtoCase, lead.lead_id), svc.get_case(db, InvoiceDetail, lead.lead_id)
+        appr = svc.get_case(db, OwnerApproval, lead.lead_id)
+        booking = pay_svc.get_booking(db, lead.lead_id)
+        ins_done, rto_done, inv_done = ins.status == "COMPLETED", bool(rto and rto.status == "REGISTERED"), bool(inv)
+        stage = "INSURANCE" if not ins_done else "RTO" if not rto_done else "INVOICE" if not inv_done else "READY"
+        dd = (inv.delivery_date if inv and inv.delivery_date else None) or (rto.delivery_date if rto else None) \
+            or (appr.delivery_date if appr else None)
+        out.append({
+            "lead_id": lead.lead_id, "enquiry_no": lead.enquiry_no, "customer_name": lead.customer.full_name,
+            "mobile": lead.customer.phone, "model": lead.model.name if getattr(lead, "model", None) else None,
+            "branch": lead.branch.name if lead.branch else None, "booking_no": booking.booking_no if booking else None,
+            "stage": stage, "insurance_done": ins_done, "rto_done": rto_done, "invoice_done": inv_done,
+            "rto_status": rto.status if rto else None,
+            "rto_status_label": svc.RTO_STATUSES.get(rto.status) if rto else None,
+            "registration_type": svc.REG_TYPES.get(rto.registration_type) if rto and rto.registration_type else None,
+            "registration_no": rto.registration_no if rto else None,
+            "invoice_no": inv.invoice_no if inv else None, "invoice_date": inv.invoice_date.isoformat() if inv and inv.invoice_date else None,
+            "approval_status": appr.status if appr else None,
+            "delivery_date": dd.isoformat() if dd else None,
+            "booked_at": booking.created_at if booking else None})
+    out.sort(key=lambda r: (r["delivery_date"] is None, r["delivery_date"] or "", r["customer_name"]))
+    return out
 
 
 @router.get("/handoffs/queue", dependencies=[Depends(require_roles(*ALL_ROLES))])

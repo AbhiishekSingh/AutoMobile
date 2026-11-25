@@ -79,8 +79,10 @@ def blocked_reason(db, lead: Lead, booking: Booking | None, quotation: Quotation
             return f"Set the Opportunity Status to {TRIGGER_STATUS} to start the booking."
         if quotation is None:
             return "Create a quotation first — the total vehicle cost comes from it."
-        if lead.enquiry_stage != EnquiryStage.OPEN:
-            return "This lead is not open for a new booking."
+        # Only a delivered file is past taking a booking payment. A lead with no stage (imported / older data) counts as Open,
+        # and one at Booked..Invoiced with no booking row is a leftover that the first payment repairs.
+        if lead.enquiry_stage == EnquiryStage.DELIVERED:
+            return "This bike is already delivered, so a new booking cannot be started."
     if outstanding is not None and outstanding <= 0:
         return "The booking is fully paid."
     return None
